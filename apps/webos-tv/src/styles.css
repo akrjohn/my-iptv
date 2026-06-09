@@ -254,6 +254,18 @@ p {
   padding-right: 0;
 }
 
+.shelf-screen .panel-heading {
+  margin-bottom: 18px;
+}
+
+.shelf-screen .panel-heading p {
+  max-width: 900px;
+}
+
+.shelf-screen .channel-stack {
+  max-height: calc(100vh - 236px);
+}
+
 .category-panel,
 .channel-panel,
 .program-panel {

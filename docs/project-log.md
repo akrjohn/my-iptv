@@ -489,3 +489,42 @@ Browser verification confirmed:
 - Add Retry/Reload Stream.
 - Add Info/Overlay Toggle.
 - Add playback error and buffering states.
+
+## 2026-06-09: Phase 2 Polish and LG TV Deployment Prep
+
+### Completed
+
+- Added dedicated Favorites and Recents screens to complete the Phase 1/2 shelf work.
+- Added app-level keyboard shortcuts for browser-runnable TV navigation.
+- Kept search from leaking across non-Live TV views.
+- Added an LG webOS deployment guide with both browser-preview and sideload paths.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+## 2026-06-08: Favorites and Recents Shelves
+
+### Completed
+
+- Added dedicated Favorites and Recents screens to the TV shell.
+- Added Favorites and Recents entries to the navigation rail.
+- Wired favorites and recent playback history into shelf views with preserved ordering.
+- Kept hidden channels out of shelf results.
+- Added unit tests for shelf ordering and filtering helpers.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```

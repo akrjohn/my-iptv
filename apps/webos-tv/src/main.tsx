@@ -53,12 +53,13 @@ import {
   formatXtreamSaveSuccessMessage,
   formatXtreamTestSuccessMessage,
 } from "./sourceSetupMessages";
+import { getFavoriteChannels, getRecentChannels } from "./channelShelf";
 import { samplePlaylist } from "./samplePlaylist";
 import { createSampleEpg } from "./sampleEpg";
 import { createCatalogStorage, type CatalogState } from "./catalogStorage";
 import "./styles.css";
 
-type View = "setup" | "live" | "doctor" | "settings" | "player";
+type View = "setup" | "live" | "favorites" | "recents" | "doctor" | "settings" | "player";
 
 const sourceId = "sample-source";
 const parsed = parseM3u(samplePlaylist, sourceId);
@@ -198,6 +199,70 @@ function App() {
       (channel) => !channel.isHidden && channelGroups(channel).includes(selectedGroup),
     );
   }, [channels, searchedChannels, searchQuery, selectedGroup]);
+
+  const favoriteChannels = useMemo(() => getFavoriteChannels(channels), [channels]);
+  const recentChannels = useMemo(
+    () => getRecentChannels(channels, catalog.recentChannelIds),
+    [catalog.recentChannelIds, channels],
+  );
+
+  useEffect(() => {
+    if (view !== "live" && isSearchOpen) {
+      closeSearch();
+    }
+  }, [isSearchOpen, view]);
+
+  useEffect(() => {
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      const target = event.target;
+      const isEditableTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+
+      if (isEditableTarget || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+
+      if (event.key === "Escape" && isSearchOpen) {
+        event.preventDefault();
+        closeSearch();
+        return;
+      }
+
+      if (view === "player") {
+        return;
+      }
+
+      if (event.key === "/") {
+        event.preventDefault();
+        openSearch();
+        return;
+      }
+
+      const nextViewByKey: Record<string, View> = {
+        "1": "setup",
+        "2": "live",
+        "3": "favorites",
+        "4": "recents",
+        "5": "doctor",
+        "6": "settings",
+      };
+
+      const nextView = nextViewByKey[event.key];
+
+      if (!nextView) {
+        return;
+      }
+
+      event.preventDefault();
+      setView(nextView);
+    }
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [closeSearch, isSearchOpen, openSearch, setView, view]);
 
   const selectedChannel =
     channels.find((channel) => channel.id === selectedChannelId) ?? channels[0];
@@ -675,7 +740,18 @@ function App() {
       return;
     }
 
-    addRecentChannel(selectedChannel.id);
+    watchChannel(selectedChannel);
+  }
+
+  function watchChannel(channel: Channel) {
+    setSelectedChannelId((currentId) => {
+      if (currentId && currentId !== channel.id) {
+        setPreviousChannelId(currentId);
+      }
+
+      return channel.id;
+    });
+    addRecentChannel(channel.id);
     setView("player");
   }
 
@@ -774,6 +850,34 @@ function App() {
           onWatch={watchSelectedChannel}
         />
       ) : null}
+      {view === "favorites" ? (
+        <ChannelShelfScreen
+          channels={favoriteChannels}
+          epgBySource={catalog.epgBySource}
+          sourceId={catalog.selectedSourceId}
+          title="Favorite Channels"
+          kicker="Favorites"
+          description="Channels you have starred for quick return on TV."
+          emptyTitle="No favorites yet"
+          emptyDescription="Star channels from Live TV or the player to build this shelf."
+          selectedChannel={favoriteChannels.find((channel) => channel.id === selectedChannelId) ?? favoriteChannels[0]}
+          onWatchChannel={watchChannel}
+        />
+      ) : null}
+      {view === "recents" ? (
+        <ChannelShelfScreen
+          channels={recentChannels}
+          epgBySource={catalog.epgBySource}
+          sourceId={catalog.selectedSourceId}
+          title="Recent Channels"
+          kicker="Recents"
+          description="The last channels you watched, kept in playback order."
+          emptyTitle="No recent channels"
+          emptyDescription="Open a channel from Live TV to start building this list."
+          selectedChannel={recentChannels.find((channel) => channel.id === selectedChannelId) ?? recentChannels[0]}
+          onWatchChannel={watchChannel}
+        />
+      ) : null}
       {view === "doctor" ? (
         <SourceDoctor
           report={healthReport}
@@ -826,6 +930,8 @@ function NavigationRail({
   const items = [
     { id: "setup" as const, label: "Sources", icon: Database },
     { id: "live" as const, label: "Live TV", icon: Tv },
+    { id: "favorites" as const, label: "Favorites", icon: Heart },
+    { id: "recents" as const, label: "Recents", icon: Clock3 },
     { id: "doctor" as const, label: "Source Health", icon: Activity },
     { id: "settings" as const, label: "Settings", icon: Settings },
   ];
@@ -1391,6 +1497,75 @@ function LiveTvBrowser({
           </button>
         </div>
       </aside>
+    </section>
+  );
+}
+
+function ChannelShelfScreen({
+  channels,
+  epgBySource,
+  sourceId,
+  title,
+  kicker,
+  description,
+  emptyTitle,
+  emptyDescription,
+  selectedChannel,
+  onWatchChannel,
+}: {
+  channels: Channel[];
+  epgBySource: Record<string, XmltvData>;
+  sourceId: string;
+  title: string;
+  kicker: string;
+  description: string;
+  emptyTitle: string;
+  emptyDescription: string;
+  selectedChannel?: Channel;
+  onWatchChannel: (channel: Channel) => void;
+}) {
+  return (
+    <section className="screen shelf-screen">
+      <AppHeader kicker={kicker} />
+      <div className="panel-heading">
+        <div>
+          <h1>{title}</h1>
+          <p>{description}</p>
+        </div>
+        <span>{channels.length} Channels</span>
+      </div>
+
+      {channels.length === 0 ? (
+        <div className="empty-channel-state">
+          <strong>{emptyTitle}</strong>
+          <span>{emptyDescription}</span>
+        </div>
+      ) : (
+        <div className="channel-stack">
+          {channels.map((channel, index) => {
+            const rowProgram = getProgramForChannel(epgBySource, sourceId, channel);
+            return (
+              <button
+                className={selectedChannel?.id === channel.id ? "stitch-channel-card is-focused" : "stitch-channel-card"}
+                key={channel.id}
+                onClick={() => onWatchChannel(channel)}
+              >
+                <ChannelLogo channel={channel} />
+                <div>
+                  <strong>{channel.name}</strong>
+                  <span>{rowProgram.title}</span>
+                  <progress max="100" value={rowProgram.progress} />
+                </div>
+                <small>
+                  #{index + 1}
+                  <br />
+                  {rowProgram.time || channelGroups(channel).join(", ") || "Live"}
+                </small>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
