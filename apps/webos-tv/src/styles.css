@@ -86,8 +86,46 @@ p {
 }
 
 .app-frame::-webkit-scrollbar,
-.screen::-webkit-scrollbar {
-  display: none;
+.screen::-webkit-scrollbar,
+.category-panel::-webkit-scrollbar,
+.channel-stack::-webkit-scrollbar,
+.settings-menu::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.app-frame::-webkit-scrollbar-track,
+.screen::-webkit-scrollbar-track,
+.category-panel::-webkit-scrollbar-track,
+.channel-stack::-webkit-scrollbar-track,
+.settings-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-frame::-webkit-scrollbar-thumb,
+.screen::-webkit-scrollbar-thumb,
+.category-panel::-webkit-scrollbar-thumb,
+.channel-stack::-webkit-scrollbar-thumb,
+.settings-menu::-webkit-scrollbar-thumb {
+  background: var(--surface-highest);
+  border-radius: 999px;
+}
+
+.app-frame::-webkit-scrollbar-thumb:hover,
+.screen::-webkit-scrollbar-thumb:hover,
+.category-panel::-webkit-scrollbar-thumb:hover,
+.channel-stack::-webkit-scrollbar-thumb:hover,
+.settings-menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(195, 245, 255, 0.5);
+}
+
+.app-frame,
+.screen,
+.category-panel,
+.channel-stack,
+.settings-menu {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-highest) transparent;
 }
 
 .side-rail {
@@ -232,10 +270,6 @@ p {
   padding-right: 28px;
 }
 
-.category-panel::-webkit-scrollbar {
-  display: none;
-}
-
 .category-panel h2 {
   color: var(--muted);
   font-size: 24px;
@@ -338,10 +372,6 @@ p {
 
 .channel-panel:has(.channel-search) .channel-stack {
   max-height: calc(100vh - 210px);
-}
-
-.channel-stack::-webkit-scrollbar {
-  display: none;
 }
 
 .empty-channel-state {
@@ -882,10 +912,6 @@ input {
 .settings-menu {
   max-height: calc(100vh - 160px);
   overflow: auto;
-}
-
-.settings-menu::-webkit-scrollbar {
-  display: none;
 }
 
 .settings-card {
