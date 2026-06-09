@@ -220,6 +220,51 @@ Browser verification confirmed:
 - Escape exits back to Live TV even after the overlay was hidden.
 - No browser console errors were observed.
 
+## 2026-06-09: Real TV Playback and Navigation Polish
+
+### Completed
+
+- Tuned the Live TV layout from real LG TV photos:
+  - widened the channel list column
+  - reduced the program detail panel footprint
+  - tightened channel card spacing and type
+  - improved long channel/program title wrapping
+- Reduced player overlay dominance so video remains the primary surface.
+- Added more reliable player overlay auto-hide behavior for live streams that report sticky buffering states.
+- Fixed false `BUFFERING...` status by treating advancing video time as authoritative playback.
+- Cleaned up search focus styling for the LG on-screen keyboard so the input no longer shows a nested focus box.
+- Moved Source Setup out of primary navigation:
+  - Settings remains the source-management entry point.
+  - Add Source still opens the existing setup flow internally.
+  - Primary rail now focuses on Live TV, Favorites, Recents, Source Health, and Settings.
+- Confirmed `iptv-org` region playlists parse correctly and identified remote logo failures as likely host/runtime image loading issues on webOS.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm typecheck
+pnpm build
+```
+
+Earlier in the same TV-polish pass, `pnpm test` also passed.
+
+### Current Device Learnings
+
+- LG webOS may report `waiting` or `stalled` even while video frames continue moving.
+- Player UI should not pin itself open solely because the media element reports buffering.
+- Search fields need quieter focus styling because the LG on-screen keyboard creates a very visible focused-input state.
+- External channel logos from playlist hosts such as Imgur may load locally but fail on TV; the app should add a logo `onError` fallback before relying on remote logos as polished UI.
+
+### Recommended Next Build Step
+
+Add graceful channel logo fallback:
+
+1. Track failed logo loads per rendered channel logo.
+2. Fall back to channel initials instead of showing broken image icons.
+3. Consider a future local logo cache/proxy if provider logos remain unreliable on webOS.
+
 ### Recommended Next Build Step
 
 Return to source management:
