@@ -1157,6 +1157,12 @@ input {
   font-size: 18px;
 }
 
+.player-error-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
 .player-header {
   position: absolute;
   top: 44px;

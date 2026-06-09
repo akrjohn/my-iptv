@@ -1529,10 +1529,16 @@ function PlayerScreen({
             <p className="player-error-icon">!</p>
             <h2>Playback Failed</h2>
             <p>The stream could not be loaded. It may be offline or unreachable.</p>
-            <button className="retry-button" onClick={() => void retryPlayback()}>
-              <RefreshCw size={24} />
-              Retry Stream
-            </button>
+            <div className="player-error-actions">
+              <button className="retry-button" onClick={() => void retryPlayback()}>
+                <RefreshCw size={24} />
+                Retry Stream
+              </button>
+              <button className="secondary-button" onClick={onBack}>
+                <ArrowLeft size={24} />
+                Go Back
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
