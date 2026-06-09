@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="MY IPTV large icon">
+  <defs>
+    <linearGradient id="bgL" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f0f10"/>
+      <stop offset="100%" stop-color="#262626"/>
+    </linearGradient>
+    <linearGradient id="accentL" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00e5ff"/>
+      <stop offset="100%" stop-color="#e8fcff"/>
+    </linearGradient>
+    <filter id="glowL" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18" result="b"/>
+      <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.7 0"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="url(#bgL)"/>
+  <rect x="132" y="174" width="760" height="436" rx="66" fill="#0b0b0b" stroke="rgba(195,245,255,0.14)" stroke-width="8"/>
+  <rect x="180" y="222" width="664" height="340" rx="42" fill="#15191b"/>
+  <path d="M270 388h152v70H270zM460 338h230v120H460zM732 282h82v226h-82z" fill="url(#accentL)" opacity="0.92"/>
+  <circle cx="510" cy="430" r="86" fill="url(#accentL)" filter="url(#glowL)" opacity="0.48"/>
+  <path d="M478 390l102 40-102 40z" fill="#0b1417"/>
+  <rect x="438" y="666" width="148" height="36" rx="18" fill="url(#accentL)"/>
+  <rect x="392" y="714" width="240" height="28" rx="14" fill="#3b3b3b"/>
+  <path d="M276 826c48-30 104-46 236-46s188 16 236 46" fill="none" stroke="rgba(195,245,255,0.32)" stroke-width="16" stroke-linecap="round"/>
+</svg>

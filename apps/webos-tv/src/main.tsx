@@ -53,6 +53,7 @@ import {
   formatXtreamSaveSuccessMessage,
   formatXtreamTestSuccessMessage,
 } from "./sourceSetupMessages";
+import { formatFavoriteToggleMessage } from "./favoriteMessages";
 import { getFavoriteChannels, getRecentChannels } from "./channelShelf";
 import { samplePlaylist } from "./samplePlaylist";
 import { createSampleEpg } from "./sampleEpg";
@@ -87,6 +88,7 @@ type SourceActionStatus =
   | { state: "error"; message: string };
 
 type PlayerStatus = "idle" | "playing" | "buffering" | "failed" | "retrying";
+type AppFeedback = { message: string; tone: "success" } | null;
 
 const catalogStorage = createCatalogStorage();
 
@@ -111,6 +113,7 @@ function App() {
   const [hasLoadedCatalog, setHasLoadedCatalog] = useState(false);
   const [setupStatus, setSetupStatus] = useState<SourceSetupStatus>({ state: "idle" });
   const [sourceActionStatus, setSourceActionStatus] = useState<SourceActionStatus>({ state: "idle" });
+  const [appFeedback, setAppFeedback] = useState<AppFeedback>(null);
   const [selectedGroup, setSelectedGroup] = useState("All Channels");
   const [categoryScrollTop, setCategoryScrollTop] = useState(0);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -205,6 +208,15 @@ function App() {
     () => getRecentChannels(channels, catalog.recentChannelIds),
     [catalog.recentChannelIds, channels],
   );
+
+  useEffect(() => {
+    if (!appFeedback) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => setAppFeedback(null), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [appFeedback]);
 
   useEffect(() => {
     if (view !== "live" && isSearchOpen) {
@@ -682,12 +694,17 @@ function App() {
   }
 
   function toggleFavorite(channel: Channel) {
-    setCatalog((current) => {
-      const isFavorite = current.favoriteChannelIds.includes(channel.id);
-      const favoriteChannelIds = isFavorite
-        ? current.favoriteChannelIds.filter((id) => id !== channel.id)
-        : [channel.id, ...current.favoriteChannelIds];
+    const isFavorite = catalog.favoriteChannelIds.includes(channel.id);
+    const favoriteChannelIds = isFavorite
+      ? catalog.favoriteChannelIds.filter((id) => id !== channel.id)
+      : [channel.id, ...catalog.favoriteChannelIds];
 
+    setAppFeedback({
+      message: formatFavoriteToggleMessage(channel.name, !isFavorite),
+      tone: "success",
+    });
+
+    setCatalog((current) => {
       return {
         ...current,
         favoriteChannelIds,
@@ -816,6 +833,11 @@ function App() {
 
   return (
     <main className={view === "player" ? "app-frame is-player-mode" : "app-frame"}>
+      {appFeedback ? (
+        <div className={`app-feedback is-${appFeedback.tone}`} role="status" aria-live="polite">
+          {appFeedback.message}
+        </div>
+      ) : null}
       {view !== "player" ? (
         <NavigationRail activeView={view} onNavigate={setView} onOpenSearch={openSearch} />
       ) : null}

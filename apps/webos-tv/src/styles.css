@@ -85,6 +85,23 @@ p {
     linear-gradient(90deg, #0d0d0d 0%, #141414 52%, #101313 100%);
 }
 
+.app-feedback {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 40;
+  max-width: min(560px, calc(100vw - 36px));
+  border: 1px solid rgba(195, 245, 255, 0.28);
+  border-radius: 10px;
+  background: rgba(10, 18, 20, 0.92);
+  padding: 14px 18px;
+  color: var(--accent);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
 .app-frame::-webkit-scrollbar,
 .screen::-webkit-scrollbar,
 .category-panel::-webkit-scrollbar,

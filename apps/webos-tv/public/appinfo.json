@@ -1,0 +1,10 @@
+{
+  "id": "com.myiptv.webos",
+  "version": "0.1.0",
+  "vendor": "MY IPTV",
+  "type": "web",
+  "main": "index.html",
+  "title": "MY IPTV",
+  "icon": "icon.svg",
+  "largeIcon": "largeIcon.svg"
+}

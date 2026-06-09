@@ -509,6 +509,35 @@ pnpm typecheck
 pnpm build
 ```
 
+## 2026-06-09: webOS App Metadata and Icon
+
+### Completed
+
+- Added a webOS `appinfo.json` manifest under `apps/webos-tv/public/`.
+- Added matching vector icons for regular and large webOS packaging.
+- Kept the icon style aligned with the existing charcoal/cyan TV direction.
+
+### Verification
+
+```sh
+pnpm build
+```
+
+## 2026-06-09: Favorite Toggle Feedback
+
+### Completed
+
+- Added transient on-screen feedback when a channel is added to or removed from favorites.
+- Added a shared favorite action message helper with tests.
+
+### Verification
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
 ## 2026-06-08: Favorites and Recents Shelves
 
 ### Completed
