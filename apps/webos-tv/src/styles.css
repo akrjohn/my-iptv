@@ -912,6 +912,27 @@ input {
   font-size: 18px;
 }
 
+.recommendation-row.is-applied {
+  opacity: 0.5;
+}
+
+.recommendation-row.is-applied strong {
+  text-decoration: line-through;
+}
+
+.recommendation-passive {
+  color: var(--muted);
+  font-size: 16px;
+  text-align: center;
+}
+
+.empty-recommendations {
+  color: var(--muted);
+  font-size: 20px;
+  text-align: center;
+  padding: 48px 0;
+}
+
 .settings-layout {
   display: grid;
   grid-template-columns: 420px 1fr;

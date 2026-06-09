@@ -49,6 +49,7 @@ export type Channel = {
   name: string;
   normalizedName: string;
   group?: string;
+  groups: string[];
   logoUrl?: string;
   streamUrl: string;
   streamFormat: StreamFormat;

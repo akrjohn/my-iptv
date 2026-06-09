@@ -26,5 +26,20 @@ describe("createSourceHealthReport", () => {
     expect(report.likelyRestrictedChannels).toBe(1);
     expect(report.recommendations.map((item) => item.type)).toContain("merge_duplicates");
     expect(report.recommendations.map((item) => item.type)).toContain("hide_restricted");
+    expect(report.hiddenCount).toBe(0);
+    expect(report.visibleChannels).toBe(3);
+    expect(report.missingStreamUrls).toBe(0);
+  });
+
+  it("accounts for hidden channels in visible count", () => {
+    const parsed = parseM3u(sample, "source-1");
+    const hidden = parsed.channels.map((ch) => ({
+      ...ch,
+      isHidden: ch.group === "Adult",
+    }));
+    const report = createSourceHealthReport("source-1", hidden, 0);
+    expect(report.hiddenCount).toBe(1);
+    expect(report.visibleChannels).toBe(2);
+    expect(report.likelyRestrictedChannels).toBe(0);
   });
 });
