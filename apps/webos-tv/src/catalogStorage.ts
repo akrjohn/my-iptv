@@ -1,10 +1,12 @@
-import type { Channel, M3uSource } from "@my-iptv/iptv-core";
+import type { Channel, ChannelOverride, M3uSource, XmltvData } from "@my-iptv/iptv-core";
 
 export type CatalogState = {
   sources: M3uSource[];
   selectedSourceId: string;
   channelsBySource: Record<string, Channel[]>;
   malformedEntriesBySource: Record<string, number>;
+  epgBySource: Record<string, XmltvData>;
+  channelOverrides: Record<string, ChannelOverride>;
   favoriteChannelIds: string[];
   recentChannelIds: string[];
   hiddenChannelIds: string[];
@@ -152,6 +154,10 @@ function isCatalogState(value: unknown): value is CatalogState {
     typeof catalog.channelsBySource === "object" &&
     Boolean(catalog.malformedEntriesBySource) &&
     typeof catalog.malformedEntriesBySource === "object" &&
+    Boolean(catalog.epgBySource) &&
+    typeof catalog.epgBySource === "object" &&
+    Boolean(catalog.channelOverrides) &&
+    typeof catalog.channelOverrides === "object" &&
     Array.isArray(catalog.favoriteChannelIds) &&
     Array.isArray(catalog.recentChannelIds) &&
     Array.isArray(catalog.hiddenChannelIds)

@@ -19,10 +19,25 @@ describe("parseM3u", () => {
       name: "Demo News HD",
       normalizedName: "demo news",
       group: "News",
+      groups: ["News"],
       logoUrl: "https://example.com/news.png",
       streamFormat: "hls",
       tvgId: "demo-news",
       tvgName: "Demo News",
     });
+  });
+
+  it("splits group-title on semicolons into multiple groups", () => {
+    const multiGroupSample = `#EXTM3U
+#EXTINF:-1 group-title="Family;Movies;Kids",Family Movie
+https://example.com/stream.m3u8
+#EXTINF:-1 group-title="News",Just News
+https://example.com/news.m3u8
+`;
+    const result = parseM3u(multiGroupSample, "source-1");
+    expect(result.channels).toHaveLength(2);
+    expect(result.channels[0].groups).toEqual(["Family", "Movies", "Kids"]);
+    expect(result.channels[0].group).toBe("Family;Movies;Kids");
+    expect(result.channels[1].groups).toEqual(["News"]);
   });
 });

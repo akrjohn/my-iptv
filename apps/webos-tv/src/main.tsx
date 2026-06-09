@@ -31,13 +31,23 @@ import {
 } from "lucide-react";
 import {
   createSourceHealthReport,
+  getCurrentProgramme,
+  getNextProgramme,
   parseM3u,
+  parseXmltv,
+  parseXmltvDate,
+  syncEpg,
   syncM3uPlaylist,
   type Channel,
+  type ChannelOverride,
   type M3uSource,
   type SourceSyncError,
+  type XmltvData,
+  type SourceHealthReport,
+  type SourceRecommendation,
 } from "@my-iptv/iptv-core";
 import { samplePlaylist } from "./samplePlaylist";
+import { createSampleEpg } from "./sampleEpg";
 import { createCatalogStorage, type CatalogState } from "./catalogStorage";
 import "./styles.css";
 
@@ -72,42 +82,20 @@ type PlayerStatus = "idle" | "playing" | "buffering" | "failed" | "retrying";
 
 const catalogStorage = createCatalogStorage();
 
+const demoEpgResult = parseXmltv(createSampleEpg());
+const demoEpg: XmltvData = demoEpgResult.ok ? demoEpgResult.data : { channels: [], programmes: [] };
+
 const demoCatalog: CatalogState = {
   sources: [demoSource],
   selectedSourceId: demoSource.id,
   channelsBySource: { [demoSource.id]: parsed.channels },
   malformedEntriesBySource: { [demoSource.id]: parsed.malformedEntries },
+  epgBySource: { [demoSource.id]: demoEpg },
+  channelOverrides: {},
   favoriteChannelIds: [],
   recentChannelIds: [],
   hiddenChannelIds: [],
 };
-
-const demoPrograms = [
-  {
-    title: "Global Morning Report",
-    next: "Market Open Briefing",
-    time: "08:00 - 09:00",
-    progress: 34,
-    description:
-      "A fast-moving briefing across world news, weather, and local headlines.",
-  },
-  {
-    title: "Matchday Live",
-    next: "Post-Match Analysis",
-    time: "09:00 - 11:00",
-    progress: 68,
-    description:
-      "Live coverage, tactical notes, and key moments from today's featured match.",
-  },
-  {
-    title: "The Archive Hour",
-    next: "Nature at Night",
-    time: "07:45 - 08:45",
-    progress: 52,
-    description:
-      "Documentary programming and curated long-form stories from the library.",
-  },
-];
 
 function App() {
   const [view, setView] = useState<View>("live");
@@ -176,7 +164,7 @@ function App() {
   }, [channels, selectedChannelId]);
 
   const groups = useMemo(
-    () => ["All Channels", ...Array.from(new Set(channels.map((channel) => channel.group ?? "Ungrouped")))],
+    () => ["All Channels", ...Array.from(new Set(channels.flatMap((channel) => channelGroups(channel))))],
     [channels],
   );
 
@@ -200,7 +188,7 @@ function App() {
     }
 
     return channels.filter(
-      (channel) => !channel.isHidden && (channel.group ?? "Ungrouped") === selectedGroup,
+      (channel) => !channel.isHidden && channelGroups(channel).includes(selectedGroup),
     );
   }, [channels, searchedChannels, searchQuery, selectedGroup]);
 
@@ -219,8 +207,10 @@ function App() {
         catalog.selectedSourceId,
         channels,
         catalog.malformedEntriesBySource[catalog.selectedSourceId] ?? 0,
+        catalog.epgBySource[catalog.selectedSourceId],
+        Object.values(catalog.channelOverrides),
       ),
-    [catalog.malformedEntriesBySource, catalog.selectedSourceId, channels],
+    [catalog.channelOverrides, catalog.malformedEntriesBySource, catalog.selectedSourceId, catalog.epgBySource, channels],
   );
 
   function selectGroup(group: string) {
@@ -229,7 +219,7 @@ function App() {
     const firstInGroup =
       group === "All Channels"
         ? channels[0]
-        : channels.find((channel) => (channel.group ?? "Ungrouped") === group);
+        : channels.find((channel) => channelGroups(channel).includes(group));
 
     if (firstInGroup) {
       setSelectedChannelId(firstInGroup.id);
@@ -256,7 +246,7 @@ function App() {
     setIsSearchOpen(false);
   }
 
-  async function syncPlaylist({ name, playlistUrl }: { name: string; playlistUrl: string }) {
+  async function syncPlaylist({ name, playlistUrl, epgUrl }: { name: string; playlistUrl: string; epgUrl?: string }) {
     setSetupStatus({ state: "syncing" });
     const result = await syncM3uPlaylist({
       sourceId: createSourceId(name),
@@ -273,8 +263,24 @@ function App() {
       return;
     }
 
+    let epgData: XmltvData | undefined;
+
+    if (epgUrl) {
+      const epgResult = await syncEpg({
+        sourceId: result.source.id,
+        epgUrl,
+      });
+
+      if (epgResult.ok) {
+        epgData = epgResult.data;
+      }
+    }
+
     setCatalog((current) => ({
-      sources: upsertSource(current.sources, result.source),
+      sources: upsertSource(current.sources, {
+        ...result.source,
+        epgUrl,
+      }),
       selectedSourceId: result.source.id,
       channelsBySource: {
         ...current.channelsBySource,
@@ -287,6 +293,10 @@ function App() {
         ...current.malformedEntriesBySource,
         [result.source.id]: result.malformedEntries,
       },
+      epgBySource: epgData
+        ? { ...current.epgBySource, [result.source.id]: epgData }
+        : current.epgBySource,
+      channelOverrides: current.channelOverrides,
       favoriteChannelIds: current.favoriteChannelIds,
       recentChannelIds: current.recentChannelIds.filter((id) =>
         result.channels.some((channel) => channel.id === id),
@@ -302,7 +312,7 @@ function App() {
     setView("live");
   }
 
-  async function testPlaylistConnection({ name, playlistUrl }: { name: string; playlistUrl: string }) {
+  async function testPlaylistConnection({ name, playlistUrl, epgUrl: _epgUrl }: { name: string; playlistUrl: string; epgUrl?: string }) {
     setSetupStatus({ state: "testing" });
     const result = await syncM3uPlaylist({
       sourceId: createSourceId(`test-${name}`),
@@ -407,9 +417,11 @@ function App() {
       const sources = current.sources.filter((item) => item.id !== source.id);
       const channelsBySource = { ...current.channelsBySource };
       const malformedEntriesBySource = { ...current.malformedEntriesBySource };
+      const epgBySource = { ...current.epgBySource };
       const removedChannelIds = new Set(channelsBySource[source.id]?.map((channel) => channel.id) ?? []);
       delete channelsBySource[source.id];
       delete malformedEntriesBySource[source.id];
+      delete epgBySource[source.id];
       const safeSources = sources.length > 0 ? sources : demoCatalog.sources;
       const selectedSourceId =
         current.selectedSourceId === source.id
@@ -423,6 +435,12 @@ function App() {
         channelsBySource: sources.length > 0 ? channelsBySource : demoCatalog.channelsBySource,
         malformedEntriesBySource:
           sources.length > 0 ? malformedEntriesBySource : demoCatalog.malformedEntriesBySource,
+        epgBySource: sources.length > 0 ? epgBySource : {},
+        channelOverrides: Object.fromEntries(
+          Object.entries(current.channelOverrides).filter(
+            ([id]) => !removedChannelIds.has(id),
+          ),
+        ),
         favoriteChannelIds: current.favoriteChannelIds.filter((id) => !removedChannelIds.has(id)),
         recentChannelIds: current.recentChannelIds.filter((id) => !removedChannelIds.has(id)),
       };
@@ -485,6 +503,24 @@ function App() {
           isHidden: hiddenChannelIds.includes(item.id),
         })),
       };
+    });
+  }
+
+  function setChannelOverride(override: ChannelOverride) {
+    setCatalog((current) => ({
+      ...current,
+      channelOverrides: {
+        ...current.channelOverrides,
+        [override.channelId]: override,
+      },
+    }));
+  }
+
+  function removeChannelOverride(channelId: string) {
+    setCatalog((current) => {
+      const rest = { ...current.channelOverrides };
+      delete rest[channelId];
+      return { ...current, channelOverrides: rest };
     });
   }
 
@@ -572,6 +608,8 @@ function App() {
       {view === "live" ? (
         <LiveTvBrowser
           channels={visibleChannels}
+          epgBySource={catalog.epgBySource}
+          sourceId={catalog.selectedSourceId}
           groups={groups}
           selectedChannel={selectedChannel}
           selectedGroup={selectedGroup}
@@ -588,7 +626,16 @@ function App() {
           onWatch={watchSelectedChannel}
         />
       ) : null}
-      {view === "doctor" ? <SourceDoctor report={healthReport} source={currentSource} onRefresh={currentSource?.playlistUrl ? () => resyncSource(currentSource) : undefined} /> : null}
+      {view === "doctor" ? (
+        <SourceDoctor
+          report={healthReport}
+          source={currentSource}
+          channelOverrides={catalog.channelOverrides}
+          onRefresh={currentSource?.playlistUrl ? () => resyncSource(currentSource) : undefined}
+          onApplyOverride={setChannelOverride}
+          onRemoveOverride={removeChannelOverride}
+        />
+      ) : null}
       {view === "settings" ? (
         <SettingsScreen
           channelsBySource={catalog.channelsBySource}
@@ -604,7 +651,7 @@ function App() {
       {view === "player" && selectedChannel ? (
         <PlayerScreen
           channel={selectedChannel}
-          program={demoPrograms[Math.max(0, channels.findIndex((c) => c.id === selectedChannel.id)) % demoPrograms.length]}
+          program={getProgramForChannel(catalog.epgBySource, catalog.selectedSourceId, selectedChannel)}
           hasLastChannel={Boolean(previousChannelId)}
           onBack={() => setView("live")}
           onChannelDown={() => changePlayerChannel(-1)}
@@ -685,11 +732,15 @@ function SourceSetup({
   onTestConnection,
 }: {
   status: SourceSetupStatus;
-  onSync: (input: { name: string; playlistUrl: string }) => Promise<void>;
-  onTestConnection: (input: { name: string; playlistUrl: string }) => Promise<void>;
+  onSync: (input: { name: string; playlistUrl: string; epgUrl?: string }) => Promise<void>;
+  onTestConnection: (input: { name: string; playlistUrl: string; epgUrl?: string }) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [playlistUrl, setPlaylistUrl] = useState("");
+  const [epgUrl, setEpgUrl] = useState("");
+  const [sourceType, setSourceType] = useState<"m3u" | "epg">("m3u");
+  const playlistInputRef = useRef<HTMLInputElement>(null);
+  const epgInputRef = useRef<HTMLInputElement>(null);
   const isWorking = status.state === "syncing" || status.state === "testing";
   const canSync = Boolean(name.trim() && playlistUrl.trim() && !isWorking);
 
@@ -703,6 +754,7 @@ function SourceSetup({
     await onSync({
       name: name.trim(),
       playlistUrl: playlistUrl.trim(),
+      epgUrl: epgUrl.trim() || undefined,
     });
   }
 
@@ -714,6 +766,7 @@ function SourceSetup({
     await onTestConnection({
       name: name.trim(),
       playlistUrl: playlistUrl.trim(),
+      epgUrl: epgUrl.trim() || undefined,
     });
   }
 
@@ -729,12 +782,24 @@ function SourceSetup({
       </div>
 
       <div className="source-type-grid" aria-label="Source type">
-        <button className="source-type-card is-focused">
+        <button
+          className={sourceType === "m3u" ? "source-type-card is-focused" : "source-type-card"}
+          onClick={() => {
+            setSourceType("m3u");
+            playlistInputRef.current?.focus();
+          }}
+        >
           <Link size={34} />
           <strong>M3U URL</strong>
           <span>Simple link-based playlist import.</span>
         </button>
-        <button className="source-type-card">
+        <button
+          className={sourceType === "epg" ? "source-type-card is-focused" : "source-type-card"}
+          onClick={() => {
+            setSourceType("epg");
+            epgInputRef.current?.focus();
+          }}
+        >
           <FileText size={34} />
           <strong>XMLTV EPG</strong>
           <span>Optional guide data for current and next programs.</span>
@@ -763,8 +828,20 @@ function SourceSetup({
               autoComplete="off"
               inputMode="url"
               placeholder="https://provider.example/playlist.m3u"
+              ref={playlistInputRef}
               value={playlistUrl}
               onChange={(event) => setPlaylistUrl(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>EPG URL (optional)</span>
+            <input
+              autoComplete="off"
+              inputMode="url"
+              placeholder="https://provider.example/epg.xmltv"
+              ref={epgInputRef}
+              value={epgUrl}
+              onChange={(event) => setEpgUrl(event.target.value)}
             />
           </label>
           {status.state === "error" ? (
@@ -808,6 +885,8 @@ function SourceSetup({
 
 function LiveTvBrowser({
   channels,
+  epgBySource,
+  sourceId,
   groups,
   selectedChannel,
   selectedGroup,
@@ -824,6 +903,8 @@ function LiveTvBrowser({
   onWatch,
 }: {
   channels: Channel[];
+  epgBySource: Record<string, XmltvData>;
+  sourceId: string;
   groups: string[];
   selectedChannel?: Channel;
   selectedGroup: string;
@@ -845,7 +926,9 @@ function LiveTvBrowser({
   const [categoryFocusIndex, setCategoryFocusIndex] = useState(
     Math.max(0, groups.indexOf(selectedGroup)),
   );
-  const program = demoPrograms[Math.max(0, channels.findIndex((channel) => channel.id === selectedChannel?.id)) % demoPrograms.length];
+  const program = selectedChannel
+    ? getProgramForChannel(epgBySource, sourceId, selectedChannel)
+    : { title: "Live", next: "", time: "", progress: 0, description: "" };
   const isSearching = Boolean(searchQuery.trim());
 
   useEffect(() => {
@@ -1021,7 +1104,7 @@ function LiveTvBrowser({
           <div style={{ height: `${virtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
             {virtualizer.getVirtualItems().map((virtualItem) => {
               const channel = channels[virtualItem.index];
-              const rowProgram = demoPrograms[virtualItem.index % demoPrograms.length];
+              const rowProgram = getProgramForChannel(epgBySource, sourceId, channel);
               return (
                 <div
                   key={virtualItem.key}
@@ -1088,7 +1171,7 @@ function LiveTvBrowser({
               ) : null}
             </div>
           </div>
-          <p className="program-meta">{selectedChannel?.group ?? "Live"} · LIVE from user playlist</p>
+          <p className="program-meta">{channelGroups(selectedChannel).join(", ") || "Live"} · LIVE from user playlist</p>
           <p>{program.description}</p>
 
           <div className="next-up">
@@ -1107,7 +1190,21 @@ function LiveTvBrowser({
   );
 }
 
-function SourceDoctor({ report, source, onRefresh }: { report: ReturnType<typeof createSourceHealthReport>; source?: M3uSource; onRefresh?: () => Promise<void> }) {
+function SourceDoctor({
+  report,
+  source,
+  channelOverrides,
+  onRefresh,
+  onApplyOverride,
+  onRemoveOverride,
+}: {
+  report: SourceHealthReport;
+  source?: M3uSource;
+  channelOverrides: Record<string, ChannelOverride>;
+  onRefresh?: () => Promise<void>;
+  onApplyOverride: (override: ChannelOverride) => void;
+  onRemoveOverride: (channelId: string) => void;
+}) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   async function handleRefresh() {
@@ -1120,6 +1217,36 @@ function SourceDoctor({ report, source, onRefresh }: { report: ReturnType<typeof
       setIsRefreshing(false);
     }
   }
+
+  function handleApply(recommendation: SourceRecommendation) {
+    if (recommendation.type === "hide_restricted" && recommendation.channelIds) {
+      for (const channelId of recommendation.channelIds) {
+        onApplyOverride({ channelId, hidden: true });
+      }
+      return;
+    }
+
+    if (recommendation.type === "hide_failed_streams" && recommendation.channelIds) {
+      for (const channelId of recommendation.channelIds) {
+        onApplyOverride({ channelId, hidden: true });
+      }
+      return;
+    }
+  }
+
+  function handleUndo(recommendation: SourceRecommendation) {
+    if (recommendation.channelIds) {
+      for (const channelId of recommendation.channelIds) {
+        const override = channelOverrides[channelId];
+        if (override?.hidden) {
+          onRemoveOverride(channelId);
+        }
+      }
+    }
+  }
+
+  const isApplied = (recommendation: SourceRecommendation) =>
+    recommendation.channelIds?.every((id: string) => channelOverrides[id]?.hidden) ?? false;
 
   return (
     <section className="screen doctor-screen">
@@ -1134,8 +1261,14 @@ function SourceDoctor({ report, source, onRefresh }: { report: ReturnType<typeof
 
       <div className="metric-grid">
         <MetricCard label="Total Channels" value={String(report.totalChannels)} tone="cyan" />
-        <MetricCard label="Missing Logos" value={String(report.missingLogos)} tone="neutral" />
-        <MetricCard label="Duplicate Groups" value={String(report.duplicateGroups)} tone="gold" />
+        <MetricCard label="Visible" value={String(report.visibleChannels)} tone="cyan" />
+        <MetricCard label="Hidden" value={String(report.hiddenCount)} tone={report.hiddenCount > 0 ? "gold" : "neutral"} />
+        <MetricCard label="Missing Logos" value={String(report.missingLogos)} tone={report.missingLogos > 0 ? "gold" : "neutral"} />
+        <MetricCard label="No Stream URL" value={String(report.missingStreamUrls)} tone={report.missingStreamUrls > 0 ? "gold" : "neutral"} />
+        <MetricCard label="Duplicate Groups" value={String(report.duplicateGroups)} tone={report.duplicateGroups > 0 ? "gold" : "neutral"} />
+        <MetricCard label="EPG Matched" value={String(report.epgMatchedCount)} tone="neutral" />
+        <MetricCard label="EPG Unmatched" value={String(report.epgUnmatchedCount)} tone={report.epgUnmatchedCount > 0 ? "gold" : "neutral"} />
+        <MetricCard label="Restricted Hints" value={String(report.likelyRestrictedChannels)} tone={report.likelyRestrictedChannels > 0 ? "gold" : "neutral"} />
       </div>
 
       <div className="doctor-panels">
@@ -1148,10 +1281,6 @@ function SourceDoctor({ report, source, onRefresh }: { report: ReturnType<typeof
             <div>
               <span>Malformed</span>
               <strong>{report.malformedEntries}</strong>
-            </div>
-            <div>
-              <span>Restricted Hints</span>
-              <strong>{report.likelyRestrictedChannels}</strong>
             </div>
             <div>
               <span>Recommendations</span>
@@ -1172,18 +1301,35 @@ function SourceDoctor({ report, source, onRefresh }: { report: ReturnType<typeof
             <h2>Cleanup Recommendations</h2>
             <p>Actions are stored as reversible overrides, not destructive source edits.</p>
           </div>
-          <button className="secondary-button">Review All</button>
         </div>
-        {report.recommendations.map((recommendation) => (
-          <article className="recommendation-row" key={recommendation.id}>
-            <Activity size={34} />
-            <div>
-              <strong>{recommendation.title}</strong>
-              <span>{recommendation.description}</span>
-            </div>
-            <button className="secondary-button">Details</button>
-          </article>
-        ))}
+        {report.recommendations.length === 0 ? (
+          <p className="empty-recommendations">No cleanup actions needed.</p>
+        ) : null}
+        {report.recommendations.map((recommendation) => {
+          const applied = isApplied(recommendation);
+          return (
+            <article className={`recommendation-row${applied ? " is-applied" : ""}`} key={recommendation.id}>
+              <Activity size={34} />
+              <div>
+                <strong>{recommendation.title}</strong>
+                <span>{recommendation.description}</span>
+              </div>
+              {recommendation.channelIds ? (
+                applied ? (
+                  <button className="secondary-button" onClick={() => handleUndo(recommendation)}>
+                    Undo
+                  </button>
+                ) : (
+                  <button className="primary-small" onClick={() => handleApply(recommendation)}>
+                    Apply
+                  </button>
+                )
+              ) : (
+                <span className="recommendation-passive">Review manually</span>
+              )}
+            </article>
+          );
+        })}
       </section>
     </section>
   );
@@ -1732,8 +1878,11 @@ function restoreCatalog(catalog: CatalogState): CatalogState {
       ...channel,
       isFavorite: catalog.favoriteChannelIds.includes(channel.id),
       isHidden: catalog.hiddenChannelIds.includes(channel.id),
+      groups: channel.groups ?? (channel.group ? channel.group.split(";").map((g) => g.trim()).filter(Boolean) : []),
     })),
     malformedEntriesBySource: catalog.malformedEntriesBySource,
+    epgBySource: catalog.epgBySource ?? {},
+    channelOverrides: catalog.channelOverrides ?? {},
     favoriteChannelIds: catalog.favoriteChannelIds,
     recentChannelIds: catalog.recentChannelIds,
     hiddenChannelIds: catalog.hiddenChannelIds,
@@ -1810,6 +1959,45 @@ function formatSyncStatus(source: M3uSource): string {
   return "Synced";
 }
 
+function getProgramForChannel(
+  epgBySource: Record<string, XmltvData>,
+  sourceId: string,
+  channel: Channel,
+): { title: string; next: string; time: string; progress: number; description: string } {
+  const epg = epgBySource[sourceId];
+  if (!epg) {
+    return { title: "Live", next: "Program guide unavailable", time: "", progress: 0, description: "" };
+  }
+
+  const current = getCurrentProgramme(epg.programmes, channel.tvgId, channel.name, channel.tvgName);
+  const next = getNextProgramme(epg.programmes, channel.tvgId, channel.name, channel.tvgName);
+
+  if (!current) {
+    return { title: "Live", next: next?.title ?? "Program guide unavailable", time: "", progress: 0, description: "" };
+  }
+
+  const start = parseXmltvDate(current.start);
+  const stop = current.stop ? parseXmltvDate(current.stop) : null;
+  const timeStr = start && stop
+    ? `${formatTime(start)} - ${formatTime(stop)}`
+    : "";
+  const progress = start && stop
+    ? Math.round(((Date.now() - start.getTime()) / (stop.getTime() - start.getTime())) * 100)
+    : 0;
+
+  return {
+    title: current.title,
+    next: next?.title ?? "No upcoming",
+    time: timeStr,
+    progress: Math.min(100, Math.max(0, progress)),
+    description: current.description ?? "",
+  };
+}
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function normalizeSearchQuery(value: string): string {
   return value.toLowerCase().trim().replace(/\s+/g, " ");
 }
@@ -1818,7 +2006,7 @@ function channelMatchesSearch(channel: Channel, query: string): boolean {
   const searchableText = [
     channel.name,
     channel.normalizedName,
-    channel.group,
+    ...channelGroups(channel),
     channel.tvgName,
     channel.tvgId,
   ]
@@ -1827,6 +2015,12 @@ function channelMatchesSearch(channel: Channel, query: string): boolean {
     .toLowerCase();
 
   return searchableText.includes(query);
+}
+
+function channelGroups(channel?: Channel): string[] {
+  if (!channel) return [];
+  if (channel.groups && channel.groups.length > 0) return channel.groups;
+  return [channel.group ?? "Ungrouped"];
 }
 
 createRoot(document.getElementById("root")!).render(

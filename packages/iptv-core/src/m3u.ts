@@ -77,7 +77,7 @@ function parseExtInf(infoLine: string, streamUrl: string): M3uEntry {
 function toChannel(entry: M3uEntry, sourceId: string, index: number): Channel {
   const tvgId = entry.attributes["tvg-id"];
   const tvgName = entry.attributes["tvg-name"];
-  const group = entry.attributes["group-title"];
+  const rawGroup = entry.attributes["group-title"];
   const logoUrl = entry.attributes["tvg-logo"];
   const normalizedName = normalizeChannelName(entry.name);
 
@@ -87,7 +87,8 @@ function toChannel(entry: M3uEntry, sourceId: string, index: number): Channel {
     externalId: tvgId,
     name: entry.name,
     normalizedName,
-    group,
+    group: rawGroup,
+    groups: rawGroup ? rawGroup.split(";").map((g) => g.trim()).filter(Boolean) : [],
     logoUrl,
     streamUrl: entry.streamUrl,
     streamFormat: detectStreamFormat(entry.streamUrl),
