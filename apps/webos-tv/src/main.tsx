@@ -834,8 +834,46 @@ function LiveTvBrowser({
   const categoryPanelRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const channelStackRef = useRef<HTMLDivElement>(null);
+  const [categoryFocusIndex, setCategoryFocusIndex] = useState(
+    Math.max(0, groups.indexOf(selectedGroup)),
+  );
   const program = demoPrograms[Math.max(0, channels.findIndex((channel) => channel.id === selectedChannel?.id)) % demoPrograms.length];
   const isSearching = Boolean(searchQuery.trim());
+
+  useEffect(() => {
+    setCategoryFocusIndex(Math.max(0, groups.indexOf(selectedGroup)));
+  }, [selectedGroup, groups]);
+
+  function selectCategoryByIndex(index: number) {
+    const clamped = Math.max(0, Math.min(index, groups.length - 1));
+    setCategoryFocusIndex(clamped);
+    const group = groups[clamped];
+
+    if (group !== selectedGroup) {
+      onSelectGroup(group);
+    }
+
+    const panel = categoryPanelRef.current;
+    const button = panel?.querySelector<HTMLButtonElement>(".category-button");
+    const buttonHeight = button?.offsetHeight ?? 48;
+    const scrollTarget = clamped * (buttonHeight + 8) - 100;
+
+    panel?.scrollTo({ top: Math.max(0, scrollTarget), behavior: "smooth" });
+  }
+
+  function handleCategoryKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      selectCategoryByIndex(categoryFocusIndex - 1);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      selectCategoryByIndex(categoryFocusIndex + 1);
+      return;
+    }
+  }
 
   const virtualizer = useVirtualizer({
     count: channels.length,
@@ -898,12 +936,21 @@ function LiveTvBrowser({
         aria-label="Categories"
         ref={categoryPanelRef}
         onScroll={(event) => onCategoryScroll(event.currentTarget.scrollTop)}
+        onKeyDown={handleCategoryKeyDown}
+        tabIndex={0}
       >
         <h2>Categories</h2>
-        {groups.map((group) => (
+        {groups.map((group, index) => (
           <button
-            className={selectedGroup === group ? "category-button is-active" : "category-button"}
+            className={
+              selectedGroup === group
+                ? "category-button is-active"
+                : categoryFocusIndex === index
+                  ? "category-button is-keyboard-focused"
+                  : "category-button"
+            }
             key={group}
+            tabIndex={-1}
             onClick={() => {
               onCategoryScroll(categoryPanelRef.current?.scrollTop ?? 0);
               onSelectGroup(group);
