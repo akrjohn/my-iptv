@@ -538,6 +538,12 @@ pnpm typecheck
 pnpm build
 ```
 
+## 2026-06-09: Launch Checklist
+
+### Completed
+
+- Added `docs/launch-checklist.md` with completed launch items and remaining blockers.
+
 ## 2026-06-08: Favorites and Recents Shelves
 
 ### Completed
