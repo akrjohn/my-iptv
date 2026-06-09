@@ -310,6 +310,50 @@ Add channel search and remote-first list navigation polish:
 4. Preserve fixed Live TV layout while filtering.
 5. Consider list virtualization for large playlists after search is functional.
 
+## 2026-06-09: Channel Search
+
+### Completed
+
+- Wired the rail Search action to open search from anywhere in the app.
+- Added an in-surface Live TV search panel.
+- Search matches channel name, normalized name, group, `tvg-name`, and `tvg-id`.
+- Added clear and empty search states.
+- Added keyboard behavior:
+  - Search input receives focus when opened.
+  - Escape clears/closes search.
+  - ArrowDown moves focus into results.
+  - Enter from the input starts the first matching channel.
+- Preserved the fixed Live TV layout while filtering.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification with a seeded catalog confirmed:
+
+- Rail Search focuses the search input.
+- Searching `sports` returned one matching channel.
+- Empty search state appears for no matches.
+- Escape clears/closes search.
+- Enter from the search input opens the player for the first matching channel.
+- No browser console errors were observed.
+
+### Recommended Next Build Step
+
+Add list virtualization for large playlists:
+
+1. Virtualize the channel list so large sources stay responsive.
+2. Preserve TV-sized row dimensions and focus states.
+3. Keep category scrolling independent from channel scrolling.
+4. Verify keyboard navigation and selected-channel visibility.
+5. Test against a synthetic catalog with thousands of channels.
+
 ## 2026-06-09: Player Retry and Playback Status
 
 ### Completed

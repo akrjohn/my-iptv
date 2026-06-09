@@ -287,6 +287,44 @@ p {
   margin-bottom: 0;
 }
 
+.channel-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(620px, 100%);
+  min-height: 58px;
+  margin-top: 16px;
+  border: 1px solid rgba(195, 245, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(16, 16, 16, 0.74);
+  padding: 0 14px;
+}
+
+.channel-search svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.channel-search input {
+  height: 54px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 19px;
+}
+
+.channel-search button {
+  min-width: 72px;
+  height: 40px;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  background: rgba(42, 42, 42, 0.6);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
 .panel-heading span {
   color: var(--muted);
   font-size: 18px;
@@ -298,8 +336,38 @@ p {
   padding: 6px;
 }
 
+.channel-panel:has(.channel-search) .channel-stack {
+  max-height: calc(100vh - 210px);
+}
+
 .channel-stack::-webkit-scrollbar {
   display: none;
+}
+
+.empty-channel-state {
+  display: grid;
+  min-height: 220px;
+  place-content: center;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: rgba(42, 42, 42, 0.4);
+  padding: 32px;
+  text-align: center;
+}
+
+.empty-channel-state strong,
+.empty-channel-state span {
+  display: block;
+}
+
+.empty-channel-state strong {
+  margin-bottom: 10px;
+  font-size: 28px;
+}
+
+.empty-channel-state span {
+  color: var(--muted);
+  font-size: 18px;
 }
 
 .stitch-channel-card {
@@ -1284,12 +1352,32 @@ input {
     margin-bottom: 18px;
   }
 
+  .channel-search {
+    min-height: 46px;
+    margin-top: 10px;
+  }
+
+  .channel-search input {
+    height: 42px;
+    font-size: 16px;
+  }
+
+  .channel-search button {
+    min-width: 60px;
+    height: 34px;
+    font-size: 12px;
+  }
+
   .panel-heading span {
     font-size: 15px;
   }
 
   .channel-stack {
     max-height: calc(100vh - 96px);
+  }
+
+  .channel-panel:has(.channel-search) .channel-stack {
+    max-height: calc(100vh - 150px);
   }
 
   .stitch-channel-card {

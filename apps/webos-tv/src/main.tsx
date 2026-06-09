@@ -115,6 +115,8 @@ function App() {
   const [sourceActionStatus, setSourceActionStatus] = useState<SourceActionStatus>({ state: "idle" });
   const [selectedGroup, setSelectedGroup] = useState("All Channels");
   const [categoryScrollTop, setCategoryScrollTop] = useState(0);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const channels = catalog.channelsBySource[catalog.selectedSourceId] ?? [];
   const currentSource =
     catalog.sources.find((source) => source.id === catalog.selectedSourceId) ?? catalog.sources[0];
@@ -176,16 +178,36 @@ function App() {
     [channels],
   );
 
+  const searchedChannels = useMemo(() => {
+    const query = normalizeSearchQuery(searchQuery);
+
+    if (!query) {
+      return channels;
+    }
+
+    return channels.filter((channel) => channelMatchesSearch(channel, query));
+  }, [channels, searchQuery]);
+
   const visibleChannels = useMemo(() => {
+    if (searchQuery.trim()) {
+      return searchedChannels;
+    }
+
     if (selectedGroup === "All Channels") {
       return channels;
     }
 
     return channels.filter((channel) => (channel.group ?? "Ungrouped") === selectedGroup);
-  }, [channels, selectedGroup]);
+  }, [channels, searchedChannels, searchQuery, selectedGroup]);
 
   const selectedChannel =
     channels.find((channel) => channel.id === selectedChannelId) ?? channels[0];
+
+  useEffect(() => {
+    if (!visibleChannels.some((channel) => channel.id === selectedChannelId)) {
+      setSelectedChannelId(visibleChannels[0]?.id ?? "");
+    }
+  }, [selectedChannelId, visibleChannels]);
 
   const healthReport = useMemo(
     () =>
@@ -198,6 +220,7 @@ function App() {
   );
 
   function selectGroup(group: string) {
+    setSearchQuery("");
     setSelectedGroup(group);
     const firstInGroup =
       group === "All Channels"
@@ -217,6 +240,16 @@ function App() {
 
       return channel.id;
     });
+  }
+
+  function openSearch() {
+    setView("live");
+    setIsSearchOpen(true);
+  }
+
+  function closeSearch() {
+    setSearchQuery("");
+    setIsSearchOpen(false);
   }
 
   async function syncPlaylist({ name, playlistUrl }: { name: string; playlistUrl: string }) {
@@ -486,7 +519,9 @@ function App() {
 
   return (
     <main className={view === "player" ? "app-frame is-player-mode" : "app-frame"}>
-      {view !== "player" ? <NavigationRail activeView={view} onNavigate={setView} /> : null}
+      {view !== "player" ? (
+        <NavigationRail activeView={view} onNavigate={setView} onOpenSearch={openSearch} />
+      ) : null}
 
       {view === "setup" ? (
         <SourceSetup
@@ -502,9 +537,13 @@ function App() {
           selectedChannel={selectedChannel}
           selectedGroup={selectedGroup}
           categoryScrollTop={categoryScrollTop}
+          isSearchOpen={isSearchOpen}
+          searchQuery={searchQuery}
           onSelectChannel={selectChannel}
           onCategoryScroll={setCategoryScrollTop}
+          onCloseSearch={closeSearch}
           onSelectGroup={selectGroup}
+          onSearchQueryChange={setSearchQuery}
           onToggleFavorite={toggleFavorite}
           onWatch={watchSelectedChannel}
         />
@@ -541,9 +580,11 @@ function App() {
 function NavigationRail({
   activeView,
   onNavigate,
+  onOpenSearch,
 }: {
   activeView: View;
   onNavigate: (view: View) => void;
+  onOpenSearch: () => void;
 }) {
   const items = [
     { id: "setup" as const, label: "Sources", icon: Database },
@@ -557,8 +598,9 @@ function NavigationRail({
       <div className="rail-logo" aria-label="MY IPTV">
         <MonitorPlay size={30} />
       </div>
-      <button className="rail-action" aria-label="Search">
+      <button className="rail-action" aria-label="Search" onClick={onOpenSearch} title="Search">
         <Search size={26} />
+        <span>Search</span>
       </button>
       <nav className="rail-nav">
         {items.map((item) => {
@@ -722,9 +764,13 @@ function LiveTvBrowser({
   selectedChannel,
   selectedGroup,
   categoryScrollTop,
+  isSearchOpen,
+  searchQuery,
   onCategoryScroll,
+  onCloseSearch,
   onSelectChannel,
   onSelectGroup,
+  onSearchQueryChange,
   onToggleFavorite,
   onWatch,
 }: {
@@ -733,14 +779,21 @@ function LiveTvBrowser({
   selectedChannel?: Channel;
   selectedGroup: string;
   categoryScrollTop: number;
+  isSearchOpen: boolean;
+  searchQuery: string;
   onCategoryScroll: (scrollTop: number) => void;
+  onCloseSearch: () => void;
   onSelectChannel: (channel: Channel) => void;
   onSelectGroup: (group: string) => void;
+  onSearchQueryChange: (query: string) => void;
   onToggleFavorite: (channel: Channel) => void;
   onWatch: () => void;
 }) {
   const categoryPanelRef = useRef<HTMLElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const firstResultRef = useRef<HTMLButtonElement>(null);
   const program = demoPrograms[Math.max(0, channels.findIndex((channel) => channel.id === selectedChannel?.id)) % demoPrograms.length];
+  const isSearching = Boolean(searchQuery.trim());
 
   useLayoutEffect(() => {
     const panel = categoryPanelRef.current;
@@ -749,6 +802,32 @@ function LiveTvBrowser({
       panel.scrollTop = categoryScrollTop;
     }
   }, [categoryScrollTop]);
+
+  useEffect(() => {
+    if (isSearchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [isSearchOpen]);
+
+  function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCloseSearch();
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      firstResultRef.current?.focus();
+      return;
+    }
+
+    if (event.key === "Enter" && channels[0]) {
+      event.preventDefault();
+      onSelectChannel(channels[0]);
+      onWatch();
+    }
+  }
 
   return (
     <section className="live-grid">
@@ -776,17 +855,44 @@ function LiveTvBrowser({
 
       <section className="channel-panel" aria-label="Live channels">
         <div className="panel-heading">
-          <h1>Live Channels</h1>
-          <span>{channels.length} Channels Available</span>
+          <div>
+            <h1>{isSearching ? "Search Results" : "Live Channels"}</h1>
+            {isSearchOpen ? (
+              <div className="channel-search" role="search">
+                <Search size={22} />
+                <input
+                  ref={searchInputRef}
+                  aria-label="Search channels"
+                  placeholder="Search channels, groups, or TVG names"
+                  value={searchQuery}
+                  onChange={(event) => onSearchQueryChange(event.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                />
+                {searchQuery ? (
+                  <button type="button" onClick={onCloseSearch}>
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <span>{channels.length} {isSearching ? "Matches" : "Channels Available"}</span>
         </div>
 
         <div className="channel-stack">
+          {channels.length === 0 ? (
+            <div className="empty-channel-state">
+              <strong>No channels found</strong>
+              <span>Try a different channel name or category.</span>
+            </div>
+          ) : null}
           {channels.map((channel, index) => {
             const rowProgram = demoPrograms[index % demoPrograms.length];
             return (
               <button
                 className={selectedChannel?.id === channel.id ? "stitch-channel-card is-focused" : "stitch-channel-card"}
                 key={channel.id}
+                ref={index === 0 ? firstResultRef : undefined}
                 onClick={() => onSelectChannel(channel)}
               >
                 <ChannelLogo channel={channel} />
@@ -1483,6 +1589,25 @@ function formatSyncStatus(source: M3uSource): string {
   }
 
   return "Synced";
+}
+
+function normalizeSearchQuery(value: string): string {
+  return value.toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+function channelMatchesSearch(channel: Channel, query: string): boolean {
+  const searchableText = [
+    channel.name,
+    channel.normalizedName,
+    channel.group,
+    channel.tvgName,
+    channel.tvgId,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return searchableText.includes(query);
 }
 
 createRoot(document.getElementById("root")!).render(
