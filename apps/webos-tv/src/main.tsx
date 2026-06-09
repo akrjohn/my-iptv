@@ -91,6 +91,7 @@ type PlayerStatus = "idle" | "playing" | "buffering" | "failed" | "retrying";
 type AppFeedback = { message: string; tone: "success" } | null;
 
 const catalogStorage = createCatalogStorage();
+const playerOverlayAutoHideMs = 3500;
 
 const demoEpgResult = parseXmltv(createSampleEpg());
 const demoEpg: XmltvData = demoEpgResult.ok ? demoEpgResult.data : { channels: [], programmes: [] };
@@ -1867,6 +1868,7 @@ function PlayerScreen({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLElement>(null);
+  const overlayHideTimerRef = useRef<number | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [canSeek, setCanSeek] = useState(false);
@@ -1876,21 +1878,44 @@ function PlayerScreen({
   useEffect(() => {
     setPlayerStatus("idle");
     setCanSeek(false);
-    setIsOverlayVisible(true);
+    revealOverlay();
     screenRef.current?.focus();
   }, [channel.id]);
 
   useEffect(() => {
-    if (!isOverlayVisible || isPaused || playerStatus === "buffering" || playerStatus === "failed") {
+    if (overlayHideTimerRef.current) {
+      window.clearTimeout(overlayHideTimerRef.current);
+      overlayHideTimerRef.current = null;
+    }
+
+    if (!isOverlayVisible || isPaused || playerStatus === "failed") {
       return undefined;
     }
 
-    const timerId = window.setTimeout(() => {
+    overlayHideTimerRef.current = window.setTimeout(() => {
       setIsOverlayVisible(false);
-    }, 5000);
+      overlayHideTimerRef.current = null;
+    }, playerOverlayAutoHideMs);
 
-    return () => window.clearTimeout(timerId);
+    return () => {
+      if (overlayHideTimerRef.current) {
+        window.clearTimeout(overlayHideTimerRef.current);
+        overlayHideTimerRef.current = null;
+      }
+    };
   }, [isOverlayVisible, isPaused, playerStatus]);
+
+  useEffect(() => {
+    return () => {
+      if (overlayHideTimerRef.current) {
+        window.clearTimeout(overlayHideTimerRef.current);
+      }
+    };
+  }, []);
+
+  function revealOverlay() {
+    setIsOverlayVisible(true);
+  }
 
   async function togglePlay() {
     const video = videoRef.current;
@@ -2044,8 +2069,8 @@ function PlayerScreen({
       ref={screenRef}
       tabIndex={-1}
       onKeyDown={handlePlayerKeyDown}
-      onMouseMove={() => setIsOverlayVisible(true)}
-      onFocus={() => setIsOverlayVisible(true)}
+      onMouseMove={revealOverlay}
+      onFocus={revealOverlay}
     >
       <video
         className="player-video"

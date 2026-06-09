@@ -263,8 +263,8 @@ p {
 
 .live-grid {
   display: grid;
-  grid-template-columns: 290px minmax(440px, 1fr) 520px;
-  gap: 28px;
+  grid-template-columns: 260px minmax(520px, 1fr) 480px;
+  gap: 22px;
   height: 100vh;
   overflow: hidden;
   padding-top: 0;
@@ -320,6 +320,7 @@ p {
   padding: 0 20px;
   text-align: left;
   font-size: 20px;
+  line-height: 1.15;
 }
 
 .category-button.is-active {
@@ -348,6 +349,7 @@ p {
   display: flex;
   align-items: start;
   justify-content: space-between;
+  gap: 18px;
   margin-bottom: 26px;
 }
 
@@ -394,8 +396,10 @@ p {
 }
 
 .panel-heading span {
+  flex-shrink: 0;
   color: var(--muted);
   font-size: 18px;
+  padding-top: 10px;
 }
 
 .channel-stack {
@@ -436,15 +440,15 @@ p {
 
 .stitch-channel-card {
   display: grid;
-  grid-template-columns: 126px 1fr 100px;
-  gap: 22px;
+  grid-template-columns: 104px minmax(0, 1fr) 78px;
+  gap: 18px;
   align-items: center;
   width: 100%;
-  min-height: 164px;
+  min-height: 142px;
   border: 1px solid var(--outline);
   border-radius: 8px;
-  background: rgba(42, 42, 42, 0.58);
-  padding: 22px;
+  background: rgba(42, 42, 42, 0.7);
+  padding: 18px;
   text-align: left;
   transition:
     background 160ms ease,
@@ -479,15 +483,20 @@ p {
 
 .stitch-channel-card strong {
   margin-bottom: 8px;
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1.15;
 }
 
 .stitch-channel-card span,
 .stitch-channel-card small {
   color: var(--muted);
-  font-size: 19px;
+  font-size: 17px;
   line-height: 1.35;
+}
+
+.stitch-channel-card strong,
+.stitch-channel-card span {
+  overflow-wrap: anywhere;
 }
 
 .stitch-channel-card progress,
@@ -513,9 +522,9 @@ p {
 
 .program-panel {
   display: grid;
-  grid-template-rows: 300px 1fr;
+  grid-template-rows: 240px 1fr;
   border-left: 1px solid var(--outline);
-  background: var(--surface-low);
+  background: rgba(17, 17, 17, 0.96);
   padding-top: 0;
 }
 
@@ -541,14 +550,19 @@ p {
   display: flex;
   align-items: center;
   gap: 20px;
+  right: 32px;
+  min-width: 0;
 }
 
 .program-channel strong {
-  font-size: 34px;
+  min-width: 0;
+  font-size: 30px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .program-body {
-  padding: 38px 40px;
+  padding: 32px 36px;
 }
 
 .program-title-row {
@@ -560,7 +574,9 @@ p {
 
 .program-title-row h2 {
   margin-bottom: 12px;
-  font-size: 38px;
+  min-width: 0;
+  font-size: 32px;
+  overflow-wrap: anywhere;
 }
 
 .program-actions {
@@ -572,6 +588,7 @@ p {
 .program-meta {
   color: var(--accent);
   font-weight: 800;
+  font-size: 18px;
 }
 
 .icon-button {
@@ -586,7 +603,7 @@ p {
 }
 
 .next-up {
-  margin: 58px 0 32px;
+  margin: 40px 0 28px;
   border-top: 1px solid var(--outline);
   padding-top: 28px;
 }
@@ -1147,8 +1164,8 @@ input {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent 28%, rgba(0, 0, 0, 0.88)),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.18), transparent 52%, rgba(255, 0, 128, 0.16));
+    linear-gradient(180deg, rgba(0, 0, 0, 0.58), transparent 24%, rgba(0, 0, 0, 0.82)),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.42), transparent 42%, rgba(0, 0, 0, 0.22));
   pointer-events: none;
 }
 
@@ -1215,8 +1232,8 @@ input {
 
 .player-header {
   position: absolute;
-  top: 44px;
-  left: 76px;
+  top: 34px;
+  left: 64px;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -1228,9 +1245,9 @@ input {
   gap: 12px;
   border: 1px solid var(--outline);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.28);
+  background: rgba(0, 0, 0, 0.54);
   padding: 12px 18px;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 900;
 }
 
@@ -1245,17 +1262,18 @@ input {
 
 .channel-stepper {
   position: absolute;
-  right: 34px;
-  top: 43%;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  width: 82px;
-  min-height: 260px;
+  width: 64px;
+  min-height: 196px;
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
   border: 1px solid var(--outline);
-  border-radius: 18px;
-  background: rgba(0, 0, 0, 0.36);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.48);
   color: var(--muted);
   overflow: hidden;
 }
@@ -1285,13 +1303,16 @@ input {
 
 .player-overlay {
   position: absolute;
-  right: 80px;
-  bottom: 60px;
-  left: 80px;
+  right: 72px;
+  bottom: 50px;
+  left: 72px;
   display: grid;
-  grid-template-columns: minmax(300px, 1.1fr) minmax(340px, 1fr) auto 80px;
-  gap: 24px;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(300px, 0.9fr) auto auto auto;
+  gap: 18px;
   align-items: center;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.48), rgba(0, 0, 0, 0.18));
+  padding: 18px 22px 12px;
 }
 
 .player-overlay span {
@@ -1302,12 +1323,15 @@ input {
 
 .player-overlay h1 {
   margin-bottom: 0;
-  font-size: 60px;
+  font-size: 46px;
+  line-height: 1.06;
+  overflow-wrap: anywhere;
 }
 
 .player-overlay h2 {
   margin-bottom: 8px;
-  font-size: 42px;
+  font-size: 34px;
+  line-height: 1.1;
 }
 
 .player-status {
@@ -1359,18 +1383,25 @@ input {
 
 .player-overlay progress {
   grid-column: 1 / -1;
+  margin-top: 4px;
 }
 
 .player-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .player-overlay .icon-button {
-  width: 64px;
-  min-width: 64px;
+  width: 54px;
+  min-width: 54px;
+  height: 54px;
   justify-self: center;
+}
+
+.player-overlay .icon-button svg {
+  width: 28px;
+  height: 28px;
 }
 
 .player-overlay .icon-button:disabled {
@@ -1379,8 +1410,8 @@ input {
 }
 
 .last-channel-button {
-  min-width: 74px;
-  height: 58px;
+  min-width: 66px;
+  height: 54px;
   border: 1px solid var(--outline);
   border-radius: 8px;
   background: transparent;
@@ -1398,7 +1429,7 @@ input {
 .retry-button {
   display: inline-flex;
   min-width: 104px;
-  height: 58px;
+  height: 54px;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -1465,8 +1496,8 @@ input {
   }
 
   .live-grid {
-    grid-template-columns: 230px minmax(390px, 1fr) 390px;
-    gap: 18px;
+    grid-template-columns: 220px minmax(430px, 1fr) 360px;
+    gap: 14px;
     padding-top: 0;
     padding-right: 0;
   }
@@ -1514,6 +1545,7 @@ input {
 
   .panel-heading span {
     font-size: 15px;
+    padding-top: 6px;
   }
 }
 
@@ -1625,9 +1657,9 @@ input {
   }
 
   .skeleton-card {
-    grid-template-columns: 78px 1fr 78px;
+    grid-template-columns: 70px 1fr 56px;
     gap: 14px;
-    min-height: 112px;
+    min-height: 104px;
     padding: 14px;
   }
 
@@ -1654,7 +1686,7 @@ input {
   }
 
   .virtual-channel-row {
-    padding-bottom: 12px;
+    padding-bottom: 10px;
   }
 
   .logo-tile {
@@ -1664,12 +1696,19 @@ input {
   }
 
   .stitch-channel-card strong {
-    font-size: 18px;
+    font-size: 17px;
   }
 
   .stitch-channel-card span,
   .stitch-channel-card small {
-    font-size: 14px;
+    font-size: 13px;
+  }
+
+  .stitch-channel-card {
+    grid-template-columns: 70px minmax(0, 1fr) 56px;
+    gap: 14px;
+    min-height: 104px;
+    padding: 14px;
   }
 
   .stitch-channel-card progress,
@@ -1678,7 +1717,7 @@ input {
   }
 
   .program-panel {
-    grid-template-rows: 210px 1fr;
+    grid-template-rows: 180px 1fr;
   }
 
   .program-channel {
@@ -1688,23 +1727,27 @@ input {
   }
 
   .program-channel strong {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .program-body {
-    padding: 24px 28px;
+    padding: 22px 26px;
   }
 
   .program-title-row h2 {
-    font-size: 28px;
+    font-size: 24px;
   }
 
   .program-meta {
-    font-size: 16px;
+    font-size: 14px;
+  }
+
+  .program-body p {
+    font-size: 14px;
   }
 
   .next-up {
-    margin: 30px 0 22px;
+    margin: 24px 0 18px;
     padding-top: 18px;
   }
 
@@ -1856,8 +1899,8 @@ input {
   }
 
   .player-header {
-    top: 30px;
-    left: 46px;
+    top: 22px;
+    left: 42px;
   }
 
   .player-header button {
@@ -1866,30 +1909,32 @@ input {
   }
 
   .channel-stepper {
-    right: 24px;
-    width: 64px;
-    min-height: 190px;
+    right: 22px;
+    width: 54px;
+    min-height: 164px;
   }
 
   .player-overlay {
-    right: 48px;
-    bottom: 36px;
-    left: 48px;
-    grid-template-columns: minmax(260px, 1fr) minmax(270px, 1fr) auto 58px;
-    gap: 14px;
+    right: 46px;
+    bottom: 28px;
+    left: 46px;
+    grid-template-columns: minmax(230px, 0.78fr) minmax(270px, 0.9fr) auto auto auto;
+    gap: 10px;
+    padding: 14px 16px 10px;
   }
 
   .player-overlay h1 {
-    font-size: 44px;
+    font-size: 34px;
   }
 
   .player-overlay h2 {
-    font-size: 30px;
+    font-size: 26px;
   }
 
   .player-overlay .icon-button {
-    width: 58px;
-    min-width: 58px;
+    width: 48px;
+    min-width: 48px;
+    height: 48px;
   }
 
   .player-controls {
@@ -1897,13 +1942,14 @@ input {
   }
 
   .last-channel-button {
-    min-width: 62px;
-    height: 58px;
-    font-size: 14px;
+    min-width: 58px;
+    height: 48px;
+    font-size: 12px;
   }
 
   .retry-button {
-    min-width: 58px;
+    min-width: 48px;
+    height: 48px;
     padding: 0 12px;
     font-size: 0;
   }
