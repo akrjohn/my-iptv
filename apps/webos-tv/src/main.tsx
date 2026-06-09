@@ -1,4 +1,5 @@
 import { StrictMode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -548,7 +549,7 @@ function App() {
           onWatch={watchSelectedChannel}
         />
       ) : null}
-      {view === "doctor" ? <SourceDoctor report={healthReport} source={currentSource} /> : null}
+      {view === "doctor" ? <SourceDoctor report={healthReport} source={currentSource} onRefresh={currentSource?.playlistUrl ? () => resyncSource(currentSource) : undefined} /> : null}
       {view === "settings" ? (
         <SettingsScreen
           channelsBySource={catalog.channelsBySource}
@@ -753,10 +754,16 @@ function SourceSetup({
             <small>{isWorking ? "Fetching playlist" : "Save locally"}</small>
           </button>
         </div>
-      </form>
-    </section>
-  );
-}
+          {isWorking ? (
+            <div className="sync-progress-bar">
+              <div className="sync-progress-bar-fill" />
+            </div>
+          ) : null}
+        </form>
+      </section>
+    );
+  }
+
 
 function LiveTvBrowser({
   channels,
@@ -791,9 +798,18 @@ function LiveTvBrowser({
 }) {
   const categoryPanelRef = useRef<HTMLElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const firstResultRef = useRef<HTMLButtonElement>(null);
+  const channelStackRef = useRef<HTMLDivElement>(null);
   const program = demoPrograms[Math.max(0, channels.findIndex((channel) => channel.id === selectedChannel?.id)) % demoPrograms.length];
   const isSearching = Boolean(searchQuery.trim());
+
+  const virtualizer = useVirtualizer({
+    count: channels.length,
+    getScrollElement: () => channelStackRef.current,
+    estimateSize: () => 190,
+    overscan: 5,
+    getItemKey: (index) => channels[index].id,
+    measureElement: (element) => element.getBoundingClientRect().height,
+  });
 
   useLayoutEffect(() => {
     const panel = categoryPanelRef.current;
@@ -809,6 +825,17 @@ function LiveTvBrowser({
     }
   }, [isSearchOpen]);
 
+  function focusFirstResult() {
+    if (channels.length === 0) return;
+
+    virtualizer.scrollToIndex(0, { align: "start" });
+
+    requestAnimationFrame(() => {
+      const firstButton = channelStackRef.current?.querySelector<HTMLButtonElement>("[data-virtual-index=\"0\"]");
+      firstButton?.focus();
+    });
+  }
+
   function handleSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -818,7 +845,7 @@ function LiveTvBrowser({
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      firstResultRef.current?.focus();
+      focusFirstResult();
       return;
     }
 
@@ -879,32 +906,64 @@ function LiveTvBrowser({
           <span>{channels.length} {isSearching ? "Matches" : "Channels Available"}</span>
         </div>
 
-        <div className="channel-stack">
-          {channels.length === 0 ? (
+        <div className="channel-stack" ref={channelStackRef}>
+          {channels.length === 0 && !isSearching ? (
+            <div className="channel-skeleton-stack">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div className="skeleton-card" key={i}>
+                  <div className="skeleton-shimmer skeleton-logo" />
+                  <div>
+                    <div className="skeleton-shimmer skeleton-text" />
+                    <div className="skeleton-shimmer skeleton-text-short" />
+                    <div className="skeleton-shimmer skeleton-progress" />
+                  </div>
+                  <div className="skeleton-shimmer skeleton-time" />
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {channels.length === 0 && isSearching ? (
             <div className="empty-channel-state">
               <strong>No channels found</strong>
               <span>Try a different channel name or category.</span>
             </div>
           ) : null}
-          {channels.map((channel, index) => {
-            const rowProgram = demoPrograms[index % demoPrograms.length];
-            return (
-              <button
-                className={selectedChannel?.id === channel.id ? "stitch-channel-card is-focused" : "stitch-channel-card"}
-                key={channel.id}
-                ref={index === 0 ? firstResultRef : undefined}
-                onClick={() => onSelectChannel(channel)}
-              >
-                <ChannelLogo channel={channel} />
-                <div>
-                  <strong>{channel.name}</strong>
-                  <span>{rowProgram.title}</span>
-                  <progress max="100" value={rowProgram.progress} />
+          <div style={{ height: `${virtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const channel = channels[virtualItem.index];
+              const rowProgram = demoPrograms[virtualItem.index % demoPrograms.length];
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  className="virtual-channel-row"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                >
+                  <button
+                    className={selectedChannel?.id === channel.id ? "stitch-channel-card is-focused" : "stitch-channel-card"}
+                    data-virtual-index={virtualItem.index}
+                    style={{ margin: 0 }}
+                    onClick={() => onSelectChannel(channel)}
+                  >
+                    <ChannelLogo channel={channel} />
+                    <div>
+                      <strong>{channel.name}</strong>
+                      <span>{rowProgram.title}</span>
+                      <progress max="100" value={rowProgram.progress} />
+                    </div>
+                    <small>{rowProgram.time}</small>
+                  </button>
                 </div>
-                <small>{rowProgram.time}</small>
-              </button>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -947,15 +1006,28 @@ function LiveTvBrowser({
   );
 }
 
-function SourceDoctor({ report, source }: { report: ReturnType<typeof createSourceHealthReport>; source?: M3uSource }) {
+function SourceDoctor({ report, source, onRefresh }: { report: ReturnType<typeof createSourceHealthReport>; source?: M3uSource; onRefresh?: () => Promise<void> }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  async function handleRefresh() {
+    if (!onRefresh || isRefreshing) return;
+
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
   return (
     <section className="screen doctor-screen">
       <AppHeader kicker="Source Doctor" />
       <div className="doctor-heading">
         <h1>Source Health</h1>
-        <button className="primary-small">
-          <RefreshCw size={24} />
-          Refresh All
+        <button className="primary-small" disabled={isRefreshing || !onRefresh} onClick={() => void handleRefresh()}>
+          <RefreshCw size={24} className={isRefreshing ? "spin" : undefined} />
+          {isRefreshing ? "Refreshing" : "Refresh All"}
         </button>
       </div>
 

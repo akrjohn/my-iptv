@@ -310,6 +310,76 @@ Add channel search and remote-first list navigation polish:
 4. Preserve fixed Live TV layout while filtering.
 5. Consider list virtualization for large playlists after search is functional.
 
+### Recommended Next Build Step
+
+Add loading/skeleton states and progress indicators:
+
+1. Add a loading skeleton for initial sync and channel list population.
+2. Add progress states during source sync operations.
+3. Add a smooth scrollbar for non-touch environments.
+4. Test against a synthetic catalog with 10,000+ channels.
+
+## 2026-06-08: Virtualized Channel List
+
+### Completed
+
+- Installed `@tanstack/react-virtual` for list virtualization.
+- Virtualized the Live TV channel list so only visible rows are rendered.
+- Used `measureElement` for accurate row height measurement (handles dynamic content).
+- Replaced `margin-bottom` on channel cards with `padding-bottom` on virtual row wrappers.
+- Updated keyboard focus: ArrowDown from search scrolls to and focuses the first result.
+- Preserved TV-sized row dimensions, focus states, and responsive breakpoints.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+### Recommended Next Build Step
+
+Add scrollbar styling for non-touch environments:
+
+1. Style the scrollbar to match the TV aesthetic.
+2. Add overlay/toggle info button to the player.
+3. Implement hide channel action in the player or channel list.
+4. Add favorite toggle from player overlay.
+5. Consider keyboard-accessible source selection in Live TV.
+
+## 2026-06-08: Loading Skeletons and Sync Progress
+
+### Completed
+
+- Added shimmer skeleton cards for channel list initial state (5 skeleton cards matching channel card layout).
+- Added indeterminate progress bar to Source Setup form during sync and test connection operations.
+- Wired Source Doctor "Refresh All" button to resync the current source, with spinning icon and "Refreshing" text.
+- Added `@keyframes` for shimmer, spin, and sync-progress-indeterminate animations.
+- Skeleton cards respect the laptop breakpoint (smaller dimensions, tighter gap).
+- Progress bar uses accent color with sliding indeterminate fill.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+### Recommended Next Build Step
+
+Consider loading/skeleton states and infinite scroll or paginated sync for very large playlists:
+
+1. Add a loading skeleton for initial sync.
+2. Add progress states during source sync operations.
+3. Layer on a smooth scrollbar for non-touch environments.
+4. Test against a synthetic catalog with 10,000+ channels.
+
 ## 2026-06-09: Channel Search
 
 ### Completed
@@ -346,13 +416,12 @@ Browser verification with a seeded catalog confirmed:
 
 ### Recommended Next Build Step
 
-Add list virtualization for large playlists:
+Add loading/skeleton states and progress indicators:
 
-1. Virtualize the channel list so large sources stay responsive.
-2. Preserve TV-sized row dimensions and focus states.
-3. Keep category scrolling independent from channel scrolling.
-4. Verify keyboard navigation and selected-channel visibility.
-5. Test against a synthetic catalog with thousands of channels.
+1. Add a loading skeleton for initial sync and channel list population.
+2. Add progress states during source sync operations.
+3. Add a smooth scrollbar for non-touch environments.
+4. Test against a synthetic catalog with 10,000+ channels.
 
 ## 2026-06-09: Player Retry and Playback Status
 
