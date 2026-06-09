@@ -633,6 +633,15 @@ input {
   font-weight: 800;
 }
 
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.danger-button {
+  color: var(--danger);
+}
+
 .primary-button {
   min-height: 190px;
   flex-direction: column;
@@ -869,6 +878,49 @@ input {
 
 .source-row + .source-row {
   margin-top: 16px;
+}
+
+.source-row-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.source-row-actions .icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.34;
+}
+
+.source-action-message {
+  margin: 0 0 22px;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  padding: 16px 18px;
+  color: var(--muted);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.source-action-message.is-working {
+  border-color: rgba(255, 234, 192, 0.34);
+  color: var(--gold);
+}
+
+.source-action-message.is-success {
+  border-color: rgba(42, 232, 255, 0.36);
+  color: var(--accent);
+}
+
+.source-action-message.is-error {
+  border-color: rgba(255, 180, 171, 0.36);
+  color: var(--danger);
+}
+
+.source-management-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 22px;
 }
 
 .add-source-button {

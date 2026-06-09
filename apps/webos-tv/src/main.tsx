@@ -64,9 +64,16 @@ type CatalogState = {
 
 type SourceSetupStatus =
   | { state: "idle" }
+  | { state: "testing" }
   | { state: "syncing" }
   | { state: "success"; message: string }
   | { state: "error"; error: SourceSyncError };
+
+type SourceActionStatus =
+  | { state: "idle" }
+  | { state: "working"; message: string }
+  | { state: "success"; message: string }
+  | { state: "error"; message: string };
 
 type PlayerStatus = "idle" | "playing" | "buffering" | "failed" | "retrying";
 
@@ -112,6 +119,7 @@ function App() {
   const [view, setView] = useState<View>("live");
   const [catalog, setCatalog] = useState<CatalogState>(loadCatalog);
   const [setupStatus, setSetupStatus] = useState<SourceSetupStatus>({ state: "idle" });
+  const [sourceActionStatus, setSourceActionStatus] = useState<SourceActionStatus>({ state: "idle" });
   const [selectedGroup, setSelectedGroup] = useState("All Channels");
   const channels = catalog.channelsBySource[catalog.selectedSourceId] ?? [];
   const currentSource =
@@ -219,6 +227,137 @@ function App() {
     setView("live");
   }
 
+  async function testPlaylistConnection({ name, playlistUrl }: { name: string; playlistUrl: string }) {
+    setSetupStatus({ state: "testing" });
+    const result = await syncM3uPlaylist({
+      sourceId: createSourceId(`test-${name}`),
+      name,
+      playlistUrl,
+    });
+
+    if (!result.ok) {
+      setSetupStatus({ state: "error", error: result.error });
+      return;
+    }
+
+    setSetupStatus({
+      state: "success",
+      message: `Connection OK. ${result.channels.length} channels parsed; ${result.malformedEntries} malformed entries found.`,
+    });
+  }
+
+  async function resyncSource(source: M3uSource) {
+    if (!source.playlistUrl) {
+      setSourceActionStatus({
+        state: "error",
+        message: "This source does not have a saved playlist URL to resync.",
+      });
+      return;
+    }
+
+    setSourceActionStatus({ state: "working", message: `Resyncing ${source.name}...` });
+    const result = await syncM3uPlaylist({
+      sourceId: source.id,
+      name: source.name,
+      playlistUrl: source.playlistUrl,
+    });
+
+    if (!result.ok) {
+      setCatalog((current) => ({
+        ...current,
+        sources: upsertSource(current.sources, {
+          ...source,
+          updatedAt: result.source.updatedAt,
+          syncStatus: "failed",
+          syncError: result.error,
+        }),
+      }));
+      setSourceActionStatus({ state: "error", message: result.error.message });
+      return;
+    }
+
+    setCatalog((current) => {
+      const nextChannels = applyFavoriteFlags(result.channels, current.favoriteChannelIds);
+      const nextChannelIds = new Set(nextChannels.map((channel) => channel.id));
+      const favoriteChannelIds = current.favoriteChannelIds.filter((id) => nextChannelIds.has(id));
+      const recentChannelIds = current.recentChannelIds.filter((id) => nextChannelIds.has(id));
+
+      return {
+        ...current,
+        sources: upsertSource(current.sources, {
+          ...source,
+          ...result.source,
+          createdAt: source.createdAt,
+        }),
+        selectedSourceId: result.source.id,
+        channelsBySource: {
+          ...current.channelsBySource,
+          [result.source.id]: applyFavoriteFlags(result.channels, favoriteChannelIds),
+        },
+        malformedEntriesBySource: {
+          ...current.malformedEntriesBySource,
+          [result.source.id]: result.malformedEntries,
+        },
+        favoriteChannelIds,
+        recentChannelIds,
+      };
+    });
+    setSelectedGroup("All Channels");
+    setSelectedChannelId(result.channels[0]?.id ?? "");
+    setSourceActionStatus({
+      state: "success",
+      message: `${source.name} resynced. ${result.channels.length} channels available.`,
+    });
+  }
+
+  function deleteSource(source: M3uSource) {
+    if (source.id === demoSource.id) {
+      setSourceActionStatus({
+        state: "error",
+        message: "The demo source is kept as the fallback catalog.",
+      });
+      return;
+    }
+
+    setCatalog((current) => {
+      const sources = current.sources.filter((item) => item.id !== source.id);
+      const channelsBySource = { ...current.channelsBySource };
+      const malformedEntriesBySource = { ...current.malformedEntriesBySource };
+      const removedChannelIds = new Set(channelsBySource[source.id]?.map((channel) => channel.id) ?? []);
+      delete channelsBySource[source.id];
+      delete malformedEntriesBySource[source.id];
+      const safeSources = sources.length > 0 ? sources : demoCatalog.sources;
+      const selectedSourceId =
+        current.selectedSourceId === source.id
+          ? safeSources[0]?.id ?? demoCatalog.selectedSourceId
+          : current.selectedSourceId;
+
+      return {
+        ...current,
+        sources: safeSources,
+        selectedSourceId,
+        channelsBySource: sources.length > 0 ? channelsBySource : demoCatalog.channelsBySource,
+        malformedEntriesBySource:
+          sources.length > 0 ? malformedEntriesBySource : demoCatalog.malformedEntriesBySource,
+        favoriteChannelIds: current.favoriteChannelIds.filter((id) => !removedChannelIds.has(id)),
+        recentChannelIds: current.recentChannelIds.filter((id) => !removedChannelIds.has(id)),
+      };
+    });
+    setSelectedGroup("All Channels");
+    setPreviousChannelId("");
+    setSourceActionStatus({ state: "success", message: `${source.name} was removed.` });
+  }
+
+  function clearLocalData() {
+    setCatalog(demoCatalog);
+    setSetupStatus({ state: "idle" });
+    setSourceActionStatus({ state: "success", message: "Local source data was reset to the demo catalog." });
+    setSelectedGroup("All Channels");
+    setSelectedChannelId(demoCatalog.channelsBySource[demoSource.id]?.[0]?.id ?? "");
+    setPreviousChannelId("");
+    setView("live");
+  }
+
   function toggleFavorite(channel: Channel) {
     setCatalog((current) => {
       const isFavorite = current.favoriteChannelIds.includes(channel.id);
@@ -309,7 +448,13 @@ function App() {
     <main className={view === "player" ? "app-frame is-player-mode" : "app-frame"}>
       {view !== "player" ? <NavigationRail activeView={view} onNavigate={setView} /> : null}
 
-      {view === "setup" ? <SourceSetup status={setupStatus} onSync={syncPlaylist} /> : null}
+      {view === "setup" ? (
+        <SourceSetup
+          status={setupStatus}
+          onSync={syncPlaylist}
+          onTestConnection={testPlaylistConnection}
+        />
+      ) : null}
       {view === "live" ? (
         <LiveTvBrowser
           channels={visibleChannels}
@@ -327,8 +472,12 @@ function App() {
         <SettingsScreen
           channelsBySource={catalog.channelsBySource}
           selectedSourceId={catalog.selectedSourceId}
+          status={sourceActionStatus}
           sources={catalog.sources}
           onAddSource={() => setView("setup")}
+          onClearLocalData={clearLocalData}
+          onDeleteSource={deleteSource}
+          onResyncSource={(source) => void resyncSource(source)}
         />
       ) : null}
       {view === "player" && selectedChannel ? (
@@ -407,13 +556,16 @@ function AppHeader({ kicker }: { kicker: string }) {
 function SourceSetup({
   status,
   onSync,
+  onTestConnection,
 }: {
   status: SourceSetupStatus;
   onSync: (input: { name: string; playlistUrl: string }) => Promise<void>;
+  onTestConnection: (input: { name: string; playlistUrl: string }) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [playlistUrl, setPlaylistUrl] = useState("");
-  const canSync = name.trim() && playlistUrl.trim() && status.state !== "syncing";
+  const isWorking = status.state === "syncing" || status.state === "testing";
+  const canSync = Boolean(name.trim() && playlistUrl.trim() && !isWorking);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -423,6 +575,17 @@ function SourceSetup({
     }
 
     await onSync({
+      name: name.trim(),
+      playlistUrl: playlistUrl.trim(),
+    });
+  }
+
+  async function handleTestConnection() {
+    if (!canSync) {
+      return;
+    }
+
+    await onTestConnection({
       name: name.trim(),
       playlistUrl: playlistUrl.trim(),
     });
@@ -486,7 +649,7 @@ function SourceSetup({
           ) : null}
           {status.state === "success" ? (
             <p className="sync-message is-success">
-              <strong>Sync complete</strong>
+              <strong>{status.message.startsWith("Connection OK") ? "Connection OK" : "Sync complete"}</strong>
               <span>{status.message}</span>
             </p>
           ) : null}
@@ -496,14 +659,14 @@ function SourceSetup({
           </p>
         </div>
         <div className="form-actions">
-          <button className="secondary-button" type="button">
+          <button className="secondary-button" type="button" disabled={!canSync} onClick={() => void handleTestConnection()}>
             <Wifi size={24} />
-            Test Connection
+            {status.state === "testing" ? "Testing" : "Test Connection"}
           </button>
           <button className="primary-button" type="submit" disabled={!canSync}>
             <RefreshCw size={28} />
             {status.state === "syncing" ? "Syncing" : "Sync Playlist"}
-            <small>{status.state === "syncing" ? "Fetching playlist" : "Save locally"}</small>
+            <small>{isWorking ? "Fetching playlist" : "Save locally"}</small>
           </button>
         </div>
       </form>
@@ -687,14 +850,24 @@ function SourceDoctor({ report, source }: { report: ReturnType<typeof createSour
 function SettingsScreen({
   channelsBySource,
   selectedSourceId,
+  status,
   sources,
   onAddSource,
+  onClearLocalData,
+  onDeleteSource,
+  onResyncSource,
 }: {
   channelsBySource: Record<string, Channel[]>;
   selectedSourceId: string;
+  status: SourceActionStatus;
   sources: M3uSource[];
   onAddSource: () => void;
+  onClearLocalData: () => void;
+  onDeleteSource: (source: M3uSource) => void;
+  onResyncSource: (source: M3uSource) => void;
 }) {
+  const selectedSource = sources.find((source) => source.id === selectedSourceId);
+
   return (
     <section className="screen settings-screen">
       <AppHeader kicker="Settings" />
@@ -709,6 +882,11 @@ function SettingsScreen({
 
         <section className="settings-detail">
           <h2>Manage Sources</h2>
+          {status.state !== "idle" ? (
+            <p className={`source-action-message is-${status.state}`}>
+              {status.message}
+            </p>
+          ) : null}
           {sources.map((source) => (
             <div className="source-row" key={source.id}>
               <div>
@@ -718,11 +896,40 @@ function SettingsScreen({
                   {channelsBySource[source.id]?.length ?? 0} Channels · {formatSyncStatus(source)}
                 </span>
               </div>
-              <button className="icon-button" aria-label="Delete source">
-                <Trash2 size={24} />
-              </button>
+              <div className="source-row-actions">
+                <button
+                  className="icon-button"
+                  aria-label={`Resync ${source.name}`}
+                  disabled={!source.playlistUrl || status.state === "working"}
+                  onClick={() => onResyncSource(source)}
+                >
+                  <RefreshCw size={24} />
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label={`Delete ${source.name}`}
+                  disabled={source.id === demoSource.id || status.state === "working"}
+                  onClick={() => onDeleteSource(source)}
+                >
+                  <Trash2 size={24} />
+                </button>
+              </div>
             </div>
           ))}
+          <div className="source-management-actions">
+            <button
+              className="secondary-button"
+              disabled={!selectedSource?.playlistUrl || status.state === "working"}
+              onClick={() => selectedSource && onResyncSource(selectedSource)}
+            >
+              <RefreshCw size={24} />
+              Resync Active Source
+            </button>
+            <button className="secondary-button danger-button" onClick={onClearLocalData} disabled={status.state === "working"}>
+              <Trash2 size={24} />
+              Clear Local Data
+            </button>
+          </div>
           <button className="add-source-button" onClick={onAddSource}>
             <PlusCircle size={28} />
             Add New Playlist Source

@@ -230,6 +230,47 @@ Return to source management:
 4. Show saved source failures in Settings with recovery actions.
 5. Start moving durable catalog storage from `localStorage` toward IndexedDB.
 
+## 2026-06-09: Source Management Actions
+
+### Completed
+
+- Added Test Connection for user-entered M3U/M3U8 URLs without saving the source.
+- Added active-source and row-level Resync actions for saved playlist sources.
+- Preserved matching favorites and recents during resync.
+- Added Delete Source while keeping the demo catalog as the fallback source.
+- Added Clear Local Data to reset the app to the demo catalog.
+- Added Settings feedback for working, success, and error states.
+- Kept playlist URLs out of status messages.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification with a mocked playlist confirmed:
+
+- Test Connection parsed two channels and did not save a new source.
+- Sync saved the source and displayed two channels.
+- Resync updated the saved source to three channels.
+- Delete Source removed the user source and fell back to the demo catalog.
+- Clear Local Data reset the app to the demo catalog.
+- No browser console errors were observed.
+
+### Recommended Next Build Step
+
+Move durable catalog persistence from `localStorage` toward IndexedDB:
+
+1. Add a small storage adapter interface for catalog load/save/reset.
+2. Implement an IndexedDB-backed catalog store for sources and channels.
+3. Keep `localStorage` migration support for existing prototype data.
+4. Add storage failure handling and a reset path.
+5. Verify large playlist catalogs do not exceed browser storage limits or freeze the UI.
+
 ## 2026-06-09: Player Retry and Playback Status
 
 ### Completed
