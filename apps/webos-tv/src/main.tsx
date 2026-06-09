@@ -1953,6 +1953,19 @@ function PlayerScreen({
     setCanSeek(videoCanSeek(video));
   }
 
+  function handleVideoTimeUpdate() {
+    updateSeekState();
+
+    const video = videoRef.current;
+
+    if (!video || video.paused || video.ended || playerStatus === "failed") {
+      return;
+    }
+
+    setIsPaused(false);
+    setPlayerStatus("playing");
+  }
+
   function seekBy(seconds: number) {
     const video = videoRef.current;
 
@@ -1995,6 +2008,12 @@ function PlayerScreen({
   }
 
   function markBuffering() {
+    const video = videoRef.current;
+
+    if (video && !video.paused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return;
+    }
+
     if (playerStatus !== "retrying") {
       setPlayerStatus("buffering");
     }
@@ -2092,7 +2111,7 @@ function PlayerScreen({
         onLoadedMetadata={updateSeekState}
         onDurationChange={updateSeekState}
         onProgress={updateSeekState}
-        onTimeUpdate={updateSeekState}
+        onTimeUpdate={handleVideoTimeUpdate}
         onVolumeChange={(event) => setIsMuted(event.currentTarget.muted)}
       />
       <div className="player-gradient" />
