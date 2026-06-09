@@ -1,16 +1,22 @@
-import { StrictMode, useMemo, useState } from "react";
+import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
+  ArrowLeft,
   Clock3,
   Database,
+  FastForward,
   FileText,
   Heart,
+  Info,
   Link,
   MonitorPlay,
+  Pause,
   Play,
   PlusCircle,
   RefreshCw,
+  Rewind,
   Search,
   Server,
   Settings,
@@ -18,12 +24,17 @@ import {
   Star,
   Trash2,
   Tv,
+  Volume2,
+  VolumeX,
   Wifi,
 } from "lucide-react";
 import {
   createSourceHealthReport,
   parseM3u,
+  syncM3uPlaylist,
   type Channel,
+  type M3uSource,
+  type SourceSyncError,
 } from "@my-iptv/iptv-core";
 import { samplePlaylist } from "./samplePlaylist";
 import "./styles.css";
@@ -32,11 +43,43 @@ type View = "setup" | "live" | "doctor" | "settings" | "player";
 
 const sourceId = "sample-source";
 const parsed = parseM3u(samplePlaylist, sourceId);
-const healthReport = createSourceHealthReport(
-  sourceId,
-  parsed.channels,
-  parsed.malformedEntries,
-);
+const demoSource: M3uSource = {
+  id: sourceId,
+  type: "m3u",
+  name: "Demo Local M3U",
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
+  lastSyncedAt: new Date(0).toISOString(),
+  syncStatus: "success",
+};
+
+type CatalogState = {
+  sources: M3uSource[];
+  selectedSourceId: string;
+  channelsBySource: Record<string, Channel[]>;
+  malformedEntriesBySource: Record<string, number>;
+  favoriteChannelIds: string[];
+  recentChannelIds: string[];
+};
+
+type SourceSetupStatus =
+  | { state: "idle" }
+  | { state: "syncing" }
+  | { state: "success"; message: string }
+  | { state: "error"; error: SourceSyncError };
+
+type PlayerStatus = "idle" | "playing" | "buffering" | "failed" | "retrying";
+
+const storageKey = "my-iptv.catalog.v1";
+
+const demoCatalog: CatalogState = {
+  sources: [demoSource],
+  selectedSourceId: demoSource.id,
+  channelsBySource: { [demoSource.id]: parsed.channels },
+  malformedEntriesBySource: { [demoSource.id]: parsed.malformedEntries },
+  favoriteChannelIds: [],
+  recentChannelIds: [],
+};
 
 const demoPrograms = [
   {
@@ -67,57 +110,238 @@ const demoPrograms = [
 
 function App() {
   const [view, setView] = useState<View>("live");
+  const [catalog, setCatalog] = useState<CatalogState>(loadCatalog);
+  const [setupStatus, setSetupStatus] = useState<SourceSetupStatus>({ state: "idle" });
   const [selectedGroup, setSelectedGroup] = useState("All Channels");
-  const [selectedChannelId, setSelectedChannelId] = useState(parsed.channels[0]?.id ?? "");
+  const channels = catalog.channelsBySource[catalog.selectedSourceId] ?? [];
+  const currentSource =
+    catalog.sources.find((source) => source.id === catalog.selectedSourceId) ?? catalog.sources[0];
+  const [selectedChannelId, setSelectedChannelId] = useState(channels[0]?.id ?? "");
+  const [previousChannelId, setPreviousChannelId] = useState("");
+
+  useEffect(() => {
+    saveCatalog(catalog);
+  }, [catalog]);
+
+  useEffect(() => {
+    if (!channels.some((channel) => channel.id === selectedChannelId)) {
+      setSelectedChannelId(channels[0]?.id ?? "");
+    }
+  }, [channels, selectedChannelId]);
 
   const groups = useMemo(
-    () => ["All Channels", ...Array.from(new Set(parsed.channels.map((channel) => channel.group ?? "Ungrouped")))],
-    [],
+    () => ["All Channels", ...Array.from(new Set(channels.map((channel) => channel.group ?? "Ungrouped")))],
+    [channels],
   );
 
   const visibleChannels = useMemo(() => {
     if (selectedGroup === "All Channels") {
-      return parsed.channels;
+      return channels;
     }
 
-    return parsed.channels.filter((channel) => (channel.group ?? "Ungrouped") === selectedGroup);
-  }, [selectedGroup]);
+    return channels.filter((channel) => (channel.group ?? "Ungrouped") === selectedGroup);
+  }, [channels, selectedGroup]);
 
   const selectedChannel =
-    parsed.channels.find((channel) => channel.id === selectedChannelId) ?? parsed.channels[0];
+    channels.find((channel) => channel.id === selectedChannelId) ?? channels[0];
+
+  const healthReport = useMemo(
+    () =>
+      createSourceHealthReport(
+        catalog.selectedSourceId,
+        channels,
+        catalog.malformedEntriesBySource[catalog.selectedSourceId] ?? 0,
+      ),
+    [catalog.malformedEntriesBySource, catalog.selectedSourceId, channels],
+  );
 
   function selectGroup(group: string) {
     setSelectedGroup(group);
     const firstInGroup =
       group === "All Channels"
-        ? parsed.channels[0]
-        : parsed.channels.find((channel) => (channel.group ?? "Ungrouped") === group);
+        ? channels[0]
+        : channels.find((channel) => (channel.group ?? "Ungrouped") === group);
 
     if (firstInGroup) {
       setSelectedChannelId(firstInGroup.id);
     }
   }
 
+  function selectChannel(channel: Channel) {
+    setSelectedChannelId((currentId) => {
+      if (currentId && currentId !== channel.id) {
+        setPreviousChannelId(currentId);
+      }
+
+      return channel.id;
+    });
+  }
+
+  async function syncPlaylist({ name, playlistUrl }: { name: string; playlistUrl: string }) {
+    setSetupStatus({ state: "syncing" });
+    const result = await syncM3uPlaylist({
+      sourceId: createSourceId(name),
+      name,
+      playlistUrl,
+    });
+
+    if (!result.ok) {
+      setSetupStatus({ state: "error", error: result.error });
+      setCatalog((current) => ({
+        ...current,
+        sources: upsertSource(current.sources, result.source),
+      }));
+      return;
+    }
+
+    setCatalog((current) => ({
+      sources: upsertSource(current.sources, result.source),
+      selectedSourceId: result.source.id,
+      channelsBySource: {
+        ...current.channelsBySource,
+        [result.source.id]: applyFavoriteFlags(result.channels, current.favoriteChannelIds),
+      },
+      malformedEntriesBySource: {
+        ...current.malformedEntriesBySource,
+        [result.source.id]: result.malformedEntries,
+      },
+      favoriteChannelIds: current.favoriteChannelIds,
+      recentChannelIds: current.recentChannelIds.filter((id) =>
+        result.channels.some((channel) => channel.id === id),
+      ),
+    }));
+    setSelectedGroup("All Channels");
+    setSelectedChannelId(result.channels[0]?.id ?? "");
+    setSetupStatus({
+      state: "success",
+      message: `${result.channels.length} channels synced locally.`,
+    });
+    setView("live");
+  }
+
+  function toggleFavorite(channel: Channel) {
+    setCatalog((current) => {
+      const isFavorite = current.favoriteChannelIds.includes(channel.id);
+      const favoriteChannelIds = isFavorite
+        ? current.favoriteChannelIds.filter((id) => id !== channel.id)
+        : [channel.id, ...current.favoriteChannelIds];
+
+      return {
+        ...current,
+        favoriteChannelIds,
+        channelsBySource: mapChannels(current.channelsBySource, (item) => ({
+          ...item,
+          isFavorite: favoriteChannelIds.includes(item.id),
+        })),
+      };
+    });
+  }
+
+  function watchSelectedChannel() {
+    if (!selectedChannel) {
+      return;
+    }
+
+    addRecentChannel(selectedChannel.id);
+    setView("player");
+  }
+
+  function changePlayerChannel(direction: 1 | -1) {
+    if (!selectedChannel || channels.length === 0) {
+      return;
+    }
+
+    const currentIndex = Math.max(0, channels.findIndex((channel) => channel.id === selectedChannel.id));
+    const nextIndex = (currentIndex + direction + channels.length) % channels.length;
+    const nextChannel = channels[nextIndex];
+
+    if (!nextChannel) {
+      return;
+    }
+
+    setPreviousChannelId(selectedChannel.id);
+    setSelectedChannelId(nextChannel.id);
+    addRecentChannel(nextChannel.id);
+  }
+
+  function jumpToLastChannel() {
+    if (!previousChannelId || previousChannelId === selectedChannelId) {
+      return;
+    }
+
+    const previousChannel = channels.find((channel) => channel.id === previousChannelId);
+
+    if (!previousChannel) {
+      return;
+    }
+
+    setPreviousChannelId(selectedChannelId);
+    setSelectedChannelId(previousChannel.id);
+    addRecentChannel(previousChannel.id);
+  }
+
+  function addRecentChannel(channelId: string) {
+    setCatalog((current) => ({
+      ...current,
+      recentChannelIds: [channelId, ...current.recentChannelIds.filter((id) => id !== channelId)].slice(0, 20),
+    }));
+  }
+
+  function updateChannelValidationStatus(
+    channelId: string,
+    validationStatus: Channel["validationStatus"],
+  ) {
+    setCatalog((current) => ({
+      ...current,
+      channelsBySource: mapChannels(current.channelsBySource, (channel) =>
+        channel.id === channelId
+          ? {
+              ...channel,
+              lastValidatedAt: new Date().toISOString(),
+              validationStatus,
+            }
+          : channel,
+      ),
+    }));
+  }
+
   return (
     <main className={view === "player" ? "app-frame is-player-mode" : "app-frame"}>
       {view !== "player" ? <NavigationRail activeView={view} onNavigate={setView} /> : null}
 
-      {view === "setup" ? <SourceSetup /> : null}
+      {view === "setup" ? <SourceSetup status={setupStatus} onSync={syncPlaylist} /> : null}
       {view === "live" ? (
         <LiveTvBrowser
           channels={visibleChannels}
           groups={groups}
           selectedChannel={selectedChannel}
           selectedGroup={selectedGroup}
-          onSelectChannel={(channel) => setSelectedChannelId(channel.id)}
+          onSelectChannel={selectChannel}
           onSelectGroup={selectGroup}
-          onWatch={() => setView("player")}
+          onToggleFavorite={toggleFavorite}
+          onWatch={watchSelectedChannel}
         />
       ) : null}
-      {view === "doctor" ? <SourceDoctor /> : null}
-      {view === "settings" ? <SettingsScreen onAddSource={() => setView("setup")} /> : null}
+      {view === "doctor" ? <SourceDoctor report={healthReport} source={currentSource} /> : null}
+      {view === "settings" ? (
+        <SettingsScreen
+          channelsBySource={catalog.channelsBySource}
+          selectedSourceId={catalog.selectedSourceId}
+          sources={catalog.sources}
+          onAddSource={() => setView("setup")}
+        />
+      ) : null}
       {view === "player" && selectedChannel ? (
-        <PlayerScreen channel={selectedChannel} onBack={() => setView("live")} />
+        <PlayerScreen
+          channel={selectedChannel}
+          hasLastChannel={Boolean(previousChannelId)}
+          onBack={() => setView("live")}
+          onChannelDown={() => changePlayerChannel(-1)}
+          onChannelUp={() => changePlayerChannel(1)}
+          onLastChannel={jumpToLastChannel}
+          onPlaybackValidated={updateChannelValidationStatus}
+          onToggleFavorite={toggleFavorite}
+        />
       ) : null}
     </main>
   );
@@ -180,7 +404,30 @@ function AppHeader({ kicker }: { kicker: string }) {
   );
 }
 
-function SourceSetup() {
+function SourceSetup({
+  status,
+  onSync,
+}: {
+  status: SourceSetupStatus;
+  onSync: (input: { name: string; playlistUrl: string }) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [playlistUrl, setPlaylistUrl] = useState("");
+  const canSync = name.trim() && playlistUrl.trim() && status.state !== "syncing";
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canSync) {
+      return;
+    }
+
+    await onSync({
+      name: name.trim(),
+      playlistUrl: playlistUrl.trim(),
+    });
+  }
+
   return (
     <section className="screen setup-screen">
       <AppHeader kicker="Source Configuration" />
@@ -210,16 +457,39 @@ function SourceSetup() {
         </button>
       </div>
 
-      <form className="source-form">
+      <form className="source-form" onSubmit={handleSubmit}>
         <div className="form-fields">
           <label>
             <span>Playlist Alias</span>
-            <input placeholder="e.g. Home playlist" />
+            <input
+              autoComplete="off"
+              placeholder="e.g. Home playlist"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
           </label>
           <label>
             <span>M3U URL</span>
-            <input placeholder="https://provider.example/playlist.m3u" />
+            <input
+              autoComplete="off"
+              inputMode="url"
+              placeholder="https://provider.example/playlist.m3u"
+              value={playlistUrl}
+              onChange={(event) => setPlaylistUrl(event.target.value)}
+            />
           </label>
+          {status.state === "error" ? (
+            <p className="sync-message is-error">
+              <strong>{formatErrorCode(status.error.code)}</strong>
+              <span>{status.error.message}</span>
+            </p>
+          ) : null}
+          {status.state === "success" ? (
+            <p className="sync-message is-success">
+              <strong>Sync complete</strong>
+              <span>{status.message}</span>
+            </p>
+          ) : null}
           <p className="source-note">
             All source data is local in this prototype. Only use playlist URLs you are
             authorized to access.
@@ -230,10 +500,10 @@ function SourceSetup() {
             <Wifi size={24} />
             Test Connection
           </button>
-          <button className="primary-button" type="button">
+          <button className="primary-button" type="submit" disabled={!canSync}>
             <RefreshCw size={28} />
-            Sync Playlist
-            <small>Demo fixture loaded</small>
+            {status.state === "syncing" ? "Syncing" : "Sync Playlist"}
+            <small>{status.state === "syncing" ? "Fetching playlist" : "Save locally"}</small>
           </button>
         </div>
       </form>
@@ -248,6 +518,7 @@ function LiveTvBrowser({
   selectedGroup,
   onSelectChannel,
   onSelectGroup,
+  onToggleFavorite,
   onWatch,
 }: {
   channels: Channel[];
@@ -256,6 +527,7 @@ function LiveTvBrowser({
   selectedGroup: string;
   onSelectChannel: (channel: Channel) => void;
   onSelectGroup: (group: string) => void;
+  onToggleFavorite: (channel: Channel) => void;
   onWatch: () => void;
 }) {
   const program = demoPrograms[Math.max(0, channels.findIndex((channel) => channel.id === selectedChannel?.id)) % demoPrograms.length];
@@ -316,7 +588,11 @@ function LiveTvBrowser({
         <div className="program-body">
           <div className="program-title-row">
             <h2>{program.title}</h2>
-            <button className="icon-button" aria-label="Favorite">
+            <button
+              className={selectedChannel?.isFavorite ? "icon-button is-favorite" : "icon-button"}
+              aria-label="Favorite"
+              onClick={() => selectedChannel && onToggleFavorite(selectedChannel)}
+            >
               <Star size={28} />
             </button>
           </div>
@@ -339,7 +615,7 @@ function LiveTvBrowser({
   );
 }
 
-function SourceDoctor() {
+function SourceDoctor({ report, source }: { report: ReturnType<typeof createSourceHealthReport>; source?: M3uSource }) {
   return (
     <section className="screen doctor-screen">
       <AppHeader kicker="Source Doctor" />
@@ -352,35 +628,35 @@ function SourceDoctor() {
       </div>
 
       <div className="metric-grid">
-        <MetricCard label="Total Channels" value={String(healthReport.totalChannels)} tone="cyan" />
-        <MetricCard label="Missing Logos" value={String(healthReport.missingLogos)} tone="neutral" />
-        <MetricCard label="Duplicate Groups" value={String(healthReport.duplicateGroups)} tone="gold" />
+        <MetricCard label="Total Channels" value={String(report.totalChannels)} tone="cyan" />
+        <MetricCard label="Missing Logos" value={String(report.missingLogos)} tone="neutral" />
+        <MetricCard label="Duplicate Groups" value={String(report.duplicateGroups)} tone="gold" />
       </div>
 
       <div className="doctor-panels">
         <section className="wide-panel">
           <h2>Metadata Coverage</h2>
           <div className="coverage-bar">
-            <span style={{ width: `${Math.max(5, 100 - healthReport.missingLogos * 20)}%` }} />
+            <span style={{ width: `${metadataCoverage(report)}%` }} />
           </div>
           <div className="coverage-stats">
             <div>
               <span>Malformed</span>
-              <strong>{healthReport.malformedEntries}</strong>
+              <strong>{report.malformedEntries}</strong>
             </div>
             <div>
               <span>Restricted Hints</span>
-              <strong>{healthReport.likelyRestrictedChannels}</strong>
+              <strong>{report.likelyRestrictedChannels}</strong>
             </div>
             <div>
               <span>Recommendations</span>
-              <strong>{healthReport.recommendations.length}</strong>
+              <strong>{report.recommendations.length}</strong>
             </div>
           </div>
         </section>
         <section className="optimization-panel">
           <h2>Optimization</h2>
-          <p><Database size={22} /> Catalog parsed locally</p>
+          <p><Database size={22} /> {source?.name ?? "Catalog"} parsed locally</p>
           <p><Shield size={22} /> User data stays on device</p>
         </section>
       </div>
@@ -393,7 +669,7 @@ function SourceDoctor() {
           </div>
           <button className="secondary-button">Review All</button>
         </div>
-        {healthReport.recommendations.map((recommendation) => (
+        {report.recommendations.map((recommendation) => (
           <article className="recommendation-row" key={recommendation.id}>
             <Activity size={34} />
             <div>
@@ -408,7 +684,17 @@ function SourceDoctor() {
   );
 }
 
-function SettingsScreen({ onAddSource }: { onAddSource: () => void }) {
+function SettingsScreen({
+  channelsBySource,
+  selectedSourceId,
+  sources,
+  onAddSource,
+}: {
+  channelsBySource: Record<string, Channel[]>;
+  selectedSourceId: string;
+  sources: M3uSource[];
+  onAddSource: () => void;
+}) {
   return (
     <section className="screen settings-screen">
       <AppHeader kicker="Settings" />
@@ -423,15 +709,20 @@ function SettingsScreen({ onAddSource }: { onAddSource: () => void }) {
 
         <section className="settings-detail">
           <h2>Manage Sources</h2>
-          <div className="source-row">
-            <div>
-              <strong>Demo Local M3U</strong>
-              <span>Active · {parsed.channels.length} Channels</span>
+          {sources.map((source) => (
+            <div className="source-row" key={source.id}>
+              <div>
+                <strong>{source.name}</strong>
+                <span>
+                  {source.id === selectedSourceId ? "Active" : "Saved"} ·{" "}
+                  {channelsBySource[source.id]?.length ?? 0} Channels · {formatSyncStatus(source)}
+                </span>
+              </div>
+              <button className="icon-button" aria-label="Delete source">
+                <Trash2 size={24} />
+              </button>
             </div>
-            <button className="icon-button" aria-label="Delete source">
-              <Trash2 size={24} />
-            </button>
-          </div>
+          ))}
           <button className="add-source-button" onClick={onAddSource}>
             <PlusCircle size={28} />
             Add New Playlist Source
@@ -446,20 +737,253 @@ function SettingsScreen({ onAddSource }: { onAddSource: () => void }) {
   );
 }
 
-function PlayerScreen({ channel, onBack }: { channel: Channel; onBack: () => void }) {
+function PlayerScreen({
+  channel,
+  hasLastChannel,
+  onBack,
+  onChannelDown,
+  onChannelUp,
+  onLastChannel,
+  onPlaybackValidated,
+  onToggleFavorite,
+}: {
+  channel: Channel;
+  hasLastChannel: boolean;
+  onBack: () => void;
+  onChannelDown: () => void;
+  onChannelUp: () => void;
+  onLastChannel: () => void;
+  onPlaybackValidated: (
+    channelId: string,
+    validationStatus: Channel["validationStatus"],
+  ) => void;
+  onToggleFavorite: (channel: Channel) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const screenRef = useRef<HTMLElement>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [canSeek, setCanSeek] = useState(false);
+  const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("idle");
+  const [isOverlayVisible, setIsOverlayVisible] = useState(true);
+
+  useEffect(() => {
+    setPlayerStatus("idle");
+    setCanSeek(false);
+    setIsOverlayVisible(true);
+    screenRef.current?.focus();
+  }, [channel.id]);
+
+  useEffect(() => {
+    if (!isOverlayVisible || isPaused || playerStatus === "buffering" || playerStatus === "failed") {
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setIsOverlayVisible(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timerId);
+  }, [isOverlayVisible, isPaused, playerStatus]);
+
+  async function togglePlay() {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    if (video.paused) {
+      await video.play();
+    } else {
+      video.pause();
+    }
+  }
+
+  function toggleMute() {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    video.muted = !video.muted;
+    setIsMuted(video.muted);
+  }
+
+  function updateSeekState() {
+    const video = videoRef.current;
+
+    if (!video) {
+      setCanSeek(false);
+      return;
+    }
+
+    setCanSeek(videoCanSeek(video));
+  }
+
+  function seekBy(seconds: number) {
+    const video = videoRef.current;
+
+    if (!video || !videoCanSeek(video)) {
+      return;
+    }
+
+    const rangeCount = video.seekable.length;
+    const minimum = rangeCount > 0 ? video.seekable.start(0) : 0;
+    const maximum = rangeCount > 0
+      ? video.seekable.end(rangeCount - 1)
+      : Number.isFinite(video.duration)
+        ? video.duration
+        : video.currentTime;
+
+    video.currentTime = clamp(video.currentTime + seconds, minimum, maximum);
+  }
+
+  async function retryPlayback() {
+    const video = videoRef.current;
+
+    if (!video) {
+      return;
+    }
+
+    setPlayerStatus("retrying");
+    video.load();
+
+    try {
+      await video.play();
+    } catch {
+      setPlayerStatus("failed");
+      onPlaybackValidated(channel.id, "failed");
+    }
+  }
+
+  function markPlaying() {
+    setPlayerStatus("playing");
+    onPlaybackValidated(channel.id, "playable");
+  }
+
+  function markBuffering() {
+    if (playerStatus !== "retrying") {
+      setPlayerStatus("buffering");
+    }
+  }
+
+  function markFailed() {
+    setPlayerStatus("failed");
+    onPlaybackValidated(channel.id, "failed");
+  }
+
+  function handlePlayerKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key.toLowerCase() === "i") {
+      event.preventDefault();
+      setIsOverlayVisible((current) => !current);
+      screenRef.current?.focus();
+      return;
+    }
+
+    if (event.key === "Escape" || event.key === "Backspace") {
+      event.preventDefault();
+      onBack();
+      return;
+    }
+
+    setIsOverlayVisible(true);
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      seekBy(-10);
+      return;
+    }
+
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      seekBy(10);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      onChannelUp();
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      onChannelDown();
+      return;
+    }
+
+    if (event.key.toLowerCase() === "l") {
+      event.preventDefault();
+      onLastChannel();
+      return;
+    }
+
+    const target = event.target;
+
+    if (target instanceof HTMLButtonElement) {
+      return;
+    }
+
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      void togglePlay();
+    }
+  }
+
   return (
-    <section className="player-screen">
-      <video className="player-video" src={channel.streamUrl} autoPlay controls muted playsInline />
+    <section
+      className={isOverlayVisible ? "player-screen" : "player-screen is-overlay-hidden"}
+      ref={screenRef}
+      tabIndex={-1}
+      onKeyDown={handlePlayerKeyDown}
+      onMouseMove={() => setIsOverlayVisible(true)}
+      onFocus={() => setIsOverlayVisible(true)}
+    >
+      <video
+        className="player-video"
+        ref={videoRef}
+        src={channel.streamUrl}
+        autoPlay
+        muted={isMuted}
+        playsInline
+        onPause={() => setIsPaused(true)}
+        onPlay={() => {
+          setIsPaused(false);
+          markPlaying();
+        }}
+        onPlaying={markPlaying}
+        onCanPlay={markPlaying}
+        onError={markFailed}
+        onStalled={markBuffering}
+        onWaiting={markBuffering}
+        onLoadedMetadata={updateSeekState}
+        onDurationChange={updateSeekState}
+        onProgress={updateSeekState}
+        onTimeUpdate={updateSeekState}
+        onVolumeChange={(event) => setIsMuted(event.currentTarget.muted)}
+      />
       <div className="player-gradient" />
+      {!isOverlayVisible && (playerStatus === "buffering" || playerStatus === "failed" || playerStatus === "retrying") ? (
+        <p className={`player-mini-status is-${playerStatus}`}>{formatPlayerStatus(playerStatus)}</p>
+      ) : null}
       <header className="player-header">
-        <button onClick={onBack}>MY IPTV</button>
+        <button className="player-back-button" onClick={onBack}>
+          <ArrowLeft size={30} />
+          Back to Live TV
+        </button>
         <span>LIVE</span>
       </header>
       <div className="channel-stepper" aria-label="Channel controls">
-        <span>⌃</span>
-        <strong>P+</strong>
-        <span>⌄</span>
-        <strong>P-</strong>
+        <button aria-label="Channel up" onClick={onChannelUp}>
+          <span>⌃</span>
+          <strong>P+</strong>
+        </button>
+        <button aria-label="Channel down" onClick={onChannelDown}>
+          <span>⌄</span>
+          <strong>P-</strong>
+        </button>
       </div>
       <footer className="player-overlay">
         <div>
@@ -468,15 +992,104 @@ function PlayerScreen({ channel, onBack }: { channel: Channel; onBack: () => voi
         </div>
         <div>
           <h2>{demoPrograms[0].title}</h2>
-          <p>Ends in 42 mins · {channel.streamFormat.toUpperCase()}</p>
+          <p>
+            Ends in 42 mins · {channel.streamFormat.toUpperCase()} ·{" "}
+            {canSeek ? "Seek enabled" : "Live seeking unavailable"}
+          </p>
+          <p className={`player-status is-${playerStatus}`}>
+            {formatPlayerStatus(playerStatus)}
+          </p>
         </div>
-        <button className="icon-button" aria-label="Favorite">
+        <div className="player-controls" aria-label="Playback controls">
+          <button className="icon-button" aria-label="Hide player info" onClick={() => setIsOverlayVisible(false)}>
+            <Info size={34} />
+          </button>
+          <button
+            className="last-channel-button"
+            disabled={!hasLastChannel}
+            onClick={onLastChannel}
+          >
+            Last
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Back 10 seconds"
+            disabled={!canSeek}
+            onClick={() => seekBy(-10)}
+          >
+            <Rewind size={34} />
+          </button>
+          <button className="icon-button" aria-label={isPaused ? "Play" : "Pause"} onClick={() => void togglePlay()}>
+            {isPaused ? <Play size={34} /> : <Pause size={34} />}
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Forward 10 seconds"
+            disabled={!canSeek}
+            onClick={() => seekBy(10)}
+          >
+            <FastForward size={34} />
+          </button>
+          <button className="icon-button" aria-label={isMuted ? "Unmute" : "Mute"} onClick={toggleMute}>
+            {isMuted ? <VolumeX size={34} /> : <Volume2 size={34} />}
+          </button>
+          <button
+            className="retry-button"
+            onClick={() => void retryPlayback()}
+          >
+            <RefreshCw size={24} />
+            Retry
+          </button>
+        </div>
+        <button
+          className={channel.isFavorite ? "icon-button is-favorite" : "icon-button"}
+          aria-label="Favorite"
+          onClick={() => onToggleFavorite(channel)}
+        >
           <Heart size={34} />
         </button>
         <progress max="100" value="68" />
       </footer>
     </section>
   );
+}
+
+function videoCanSeek(video: HTMLVideoElement): boolean {
+  if (Number.isFinite(video.duration) && video.duration > 0) {
+    return true;
+  }
+
+  for (let index = 0; index < video.seekable.length; index += 1) {
+    if (video.seekable.end(index) - video.seekable.start(index) > 3) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function formatPlayerStatus(playerStatus: PlayerStatus): string {
+  if (playerStatus === "buffering") {
+    return "Buffering...";
+  }
+
+  if (playerStatus === "failed") {
+    return "Playback failed";
+  }
+
+  if (playerStatus === "retrying") {
+    return "Retrying...";
+  }
+
+  if (playerStatus === "playing") {
+    return "Playing";
+  }
+
+  return "Loading stream";
 }
 
 function ChannelLogo({ channel }: { channel: Channel }) {
@@ -516,6 +1129,119 @@ function SettingsCard({
       <span>{text}</span>
     </button>
   );
+}
+
+function loadCatalog(): CatalogState {
+  const rawCatalog = window.localStorage.getItem(storageKey);
+
+  if (!rawCatalog) {
+    return demoCatalog;
+  }
+
+  try {
+    const parsedCatalog = JSON.parse(rawCatalog) as Partial<CatalogState>;
+    const sources = Array.isArray(parsedCatalog.sources) ? parsedCatalog.sources : demoCatalog.sources;
+    const selectedSourceId =
+      typeof parsedCatalog.selectedSourceId === "string" ? parsedCatalog.selectedSourceId : sources[0]?.id;
+    const channelsBySource =
+      parsedCatalog.channelsBySource && typeof parsedCatalog.channelsBySource === "object"
+        ? parsedCatalog.channelsBySource
+        : demoCatalog.channelsBySource;
+    const favoriteChannelIds = Array.isArray(parsedCatalog.favoriteChannelIds)
+      ? parsedCatalog.favoriteChannelIds
+      : [];
+    const recentChannelIds = Array.isArray(parsedCatalog.recentChannelIds)
+      ? parsedCatalog.recentChannelIds
+      : [];
+
+    if (!selectedSourceId || !channelsBySource[selectedSourceId]) {
+      return demoCatalog;
+    }
+
+    return {
+      sources,
+      selectedSourceId,
+      channelsBySource: mapChannels(channelsBySource, (channel) => ({
+        ...channel,
+        isFavorite: favoriteChannelIds.includes(channel.id),
+      })),
+      malformedEntriesBySource:
+        parsedCatalog.malformedEntriesBySource && typeof parsedCatalog.malformedEntriesBySource === "object"
+          ? parsedCatalog.malformedEntriesBySource
+          : {},
+      favoriteChannelIds,
+      recentChannelIds,
+    };
+  } catch {
+    return demoCatalog;
+  }
+}
+
+function saveCatalog(catalog: CatalogState) {
+  window.localStorage.setItem(storageKey, JSON.stringify(catalog));
+}
+
+function upsertSource(sources: M3uSource[], source: M3uSource): M3uSource[] {
+  const existingIndex = sources.findIndex((item) => item.id === source.id);
+
+  if (existingIndex === -1) {
+    return [source, ...sources];
+  }
+
+  return sources.map((item) => (item.id === source.id ? { ...item, ...source } : item));
+}
+
+function applyFavoriteFlags(channels: Channel[], favoriteChannelIds: string[]): Channel[] {
+  return channels.map((channel) => ({
+    ...channel,
+    isFavorite: favoriteChannelIds.includes(channel.id),
+  }));
+}
+
+function mapChannels(
+  channelsBySource: Record<string, Channel[]>,
+  mapper: (channel: Channel) => Channel,
+): Record<string, Channel[]> {
+  return Object.fromEntries(
+    Object.entries(channelsBySource).map(([id, channels]) => [id, channels.map(mapper)]),
+  );
+}
+
+function createSourceId(name: string): string {
+  const base = `${name}-playlist-${Date.now()}`;
+
+  return base
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function metadataCoverage(report: ReturnType<typeof createSourceHealthReport>): number {
+  if (report.totalChannels === 0) {
+    return 5;
+  }
+
+  const channelsWithLogos = report.totalChannels - report.missingLogos;
+  return Math.max(5, Math.round((channelsWithLogos / report.totalChannels) * 100));
+}
+
+function formatErrorCode(code: SourceSyncError["code"]): string {
+  return code
+    .split("_")
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatSyncStatus(source: M3uSource): string {
+  if (source.syncStatus === "failed") {
+    return source.syncError ? formatErrorCode(source.syncError.code) : "Failed";
+  }
+
+  if (!source.lastSyncedAt) {
+    return "Not synced";
+  }
+
+  return "Synced";
 }
 
 createRoot(document.getElementById("root")!).render(

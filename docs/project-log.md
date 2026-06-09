@@ -69,3 +69,230 @@ Implement real source setup and local persistence:
 3. Save source, channels, selected source, favorites, and recents locally.
 4. Show typed sync errors for network, CORS, parse, and empty-source failures.
 5. Keep demo fixture as fallback/sample data.
+
+## 2026-06-09: Real M3U Source Sync and Local Catalog
+
+### Completed
+
+- Added a shared `syncM3uPlaylist` helper in `packages/iptv-core`.
+- Added typed sync outcomes for successful sync, empty playlists, parse failures, CORS-blocked browser fetches, provider auth rejection, rate limits, and network failures.
+- Wired Source Setup to accept a user-provided M3U/M3U8 URL and sync it into the app state.
+- Added local catalog persistence for sources, channels, selected source, favorites, and recents.
+- Kept the demo local playlist as the first-run fallback.
+- Updated Live TV, Source Doctor, Settings, and Player favorite controls to use the active catalog instead of only the static fixture.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification passed with a mocked playlist response:
+
+- Source Setup enabled sync only after alias and URL were entered.
+- Mocked M3U sync navigated back to Live TV.
+- Parsed channels rendered in the channel list.
+- Synced source and channel catalog were saved to local storage.
+- No browser console errors were observed.
+
+### Current Limitations
+
+- Browser-based M3U fetch can still fail for legitimate user playlists that block CORS.
+- The Test Connection and delete-source actions are still visual only.
+- Persistence currently uses `localStorage`; a future TV-ready storage adapter should move catalog data to IndexedDB.
+- Favorites and recents persist, but there is no dedicated Favorites or Recents screen yet.
+
+### Recommended Next Build Step
+
+Add source management actions and sync recovery:
+
+1. Implement Test Connection against the same typed sync path without saving channels.
+2. Add delete-source and clear-local-data flows.
+3. Add a resync action for the active source.
+4. Show failed saved sources in Settings with recovery actions.
+5. Start evaluating IndexedDB as the durable webOS catalog store.
+
+## 2026-06-09: Player Overlay Controls
+
+### Completed
+
+- Replaced reliance on browser-native video controls with visible TV-style overlay controls.
+- Added Play/Pause and Mute/Unmute buttons to the player overlay.
+- Added keyboard handling so Space or Enter toggles playback from the player surface.
+- Kept Favorite available in the player overlay.
+- Fixed the laptop-preview player overlay grid so Play/Pause, Mute, and Favorite do not clip or stretch.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification confirmed:
+
+- Play/Pause, Mute/Unmute, and Favorite buttons are visible in the player overlay.
+- Buttons use stable hit areas at the laptop-preview breakpoint.
+- No browser console errors were observed.
+
+### Remaining Player Controls
+
+- Make Channel Up/Down functional.
+- Add Last Channel.
+- Add Info/Overlay Toggle.
+- Add playback error and buffering states.
+- Consider subtitles/audio-track controls only when the stream exposes those capabilities.
+
+### Recommended Next Build Step
+
+Keep source management as the main product next step, then follow with functional player controls:
+
+1. Implement Test Connection, delete-source, clear-local-data, and resync.
+2. Add functional Channel Up/Down and Last Channel.
+3. Add Retry Stream and playback failure display.
+4. Add overlay show/hide behavior for remote-first viewing.
+
+## 2026-06-09: Player Seek and Exit Controls
+
+### Completed
+
+- Added explicit Back to Live TV control in the player header.
+- Added Escape and Backspace handling to exit the player back to Live TV.
+- Added 10-second rewind and 10-second forward controls.
+- Added ArrowLeft and ArrowRight keyboard handling for 10-second seek.
+- Disabled seek controls automatically when the stream does not expose a seekable range.
+- Added player copy that distinguishes seek-enabled playback from pure live streams where seeking is unavailable.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification confirmed:
+
+- Back to Live TV, Back 10 seconds, Forward 10 seconds, Play/Pause, and Mute/Unmute are visible.
+- Escape exits the player back to Live TV.
+- The Back to Live TV button exits the player back to Live TV.
+- No browser console errors were observed.
+
+### Remaining Player Controls
+
+All first-pass player controls are now implemented. The next player work should focus on polish, accessibility, and real device behavior.
+
+## 2026-06-09: Player Info and Overlay Toggle
+
+### Completed
+
+- Added an Info control that hides the player overlay.
+- Added `I` keyboard handling to toggle the overlay.
+- Added auto-hide behavior after a short delay while playback is healthy.
+- Revealed the overlay again on player interaction and channel-control keyboard input.
+- Kept compact buffering, retrying, and failed statuses visible while the full overlay is hidden.
+- Fixed keyboard focus behavior so Escape still exits the player after hiding the overlay from a focused control.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification confirmed:
+
+- Info hides the player overlay.
+- `I` toggles the overlay back on and off.
+- ArrowUp reveals the overlay while switching channels.
+- Escape exits back to Live TV even after the overlay was hidden.
+- No browser console errors were observed.
+
+### Recommended Next Build Step
+
+Return to source management:
+
+1. Implement Test Connection without saving channels.
+2. Add delete-source and clear-local-data flows.
+3. Add active-source resync.
+4. Show saved source failures in Settings with recovery actions.
+5. Start moving durable catalog storage from `localStorage` toward IndexedDB.
+
+## 2026-06-09: Player Retry and Playback Status
+
+### Completed
+
+- Added a Retry control to the player overlay.
+- Added playback status display for loading, playing, buffering, retrying, and failed states.
+- Wired video `waiting`, `stalled`, `canplay`, `playing`, and `error` events into the status display.
+- Reloaded and replayed the current stream when Retry is pressed.
+- Marked channels as `playable` or `failed` in local catalog state without logging stream URLs.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification confirmed:
+
+- Retry is visible in the player overlay.
+- A simulated video error shows `Playback failed`.
+- Failed playback marks the active channel as failed in local catalog state.
+- No browser console errors were observed.
+
+### Remaining Player Controls
+
+- Add Info/Overlay Toggle.
+
+## 2026-06-09: Functional Player Channel Navigation
+
+### Completed
+
+- Made player Channel Up and Channel Down controls functional.
+- Added ArrowUp and ArrowDown keyboard handling for channel switching.
+- Added a Last Channel button for returning to the previous stream.
+- Added `L` keyboard handling for Last Channel.
+- Kept the player open while switching streams.
+- Updated recents when changing channels from inside the player.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification confirmed:
+
+- Channel Up changed `Demo News HD` to `Demo Sports FHD`.
+- Channel Down changed back to `Demo News HD`.
+- Last Channel returned to the previous stream.
+- ArrowUp and ArrowDown switched channels.
+- Recents updated after player channel changes.
+- No browser console errors were observed.
+
+### Remaining Player Controls
+
+- Add Retry/Reload Stream.
+- Add Info/Overlay Toggle.
+- Add playback error and buffering states.
