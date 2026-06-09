@@ -529,6 +529,12 @@ p {
   font-size: 38px;
 }
 
+.program-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .program-meta {
   color: var(--accent);
   font-weight: 800;

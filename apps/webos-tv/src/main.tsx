@@ -79,6 +79,7 @@ const demoCatalog: CatalogState = {
   malformedEntriesBySource: { [demoSource.id]: parsed.malformedEntries },
   favoriteChannelIds: [],
   recentChannelIds: [],
+  hiddenChannelIds: [],
 };
 
 const demoPrograms = [
@@ -191,14 +192,16 @@ function App() {
 
   const visibleChannels = useMemo(() => {
     if (searchQuery.trim()) {
-      return searchedChannels;
+      return searchedChannels.filter((channel) => !channel.isHidden);
     }
 
     if (selectedGroup === "All Channels") {
-      return channels;
+      return channels.filter((channel) => !channel.isHidden);
     }
 
-    return channels.filter((channel) => (channel.group ?? "Ungrouped") === selectedGroup);
+    return channels.filter(
+      (channel) => !channel.isHidden && (channel.group ?? "Ungrouped") === selectedGroup,
+    );
   }, [channels, searchedChannels, searchQuery, selectedGroup]);
 
   const selectedChannel =
@@ -275,7 +278,10 @@ function App() {
       selectedSourceId: result.source.id,
       channelsBySource: {
         ...current.channelsBySource,
-        [result.source.id]: applyFavoriteFlags(result.channels, current.favoriteChannelIds),
+        [result.source.id]: applyHiddenFlags(
+          applyFavoriteFlags(result.channels, current.favoriteChannelIds),
+          current.hiddenChannelIds,
+        ),
       },
       malformedEntriesBySource: {
         ...current.malformedEntriesBySource,
@@ -285,6 +291,7 @@ function App() {
       recentChannelIds: current.recentChannelIds.filter((id) =>
         result.channels.some((channel) => channel.id === id),
       ),
+      hiddenChannelIds: current.hiddenChannelIds,
     }));
     setSelectedGroup("All Channels");
     setSelectedChannelId(result.channels[0]?.id ?? "");
@@ -349,6 +356,7 @@ function App() {
       const nextChannelIds = new Set(nextChannels.map((channel) => channel.id));
       const favoriteChannelIds = current.favoriteChannelIds.filter((id) => nextChannelIds.has(id));
       const recentChannelIds = current.recentChannelIds.filter((id) => nextChannelIds.has(id));
+      const hiddenChannelIds = current.hiddenChannelIds.filter((id) => nextChannelIds.has(id));
 
       return {
         ...current,
@@ -360,7 +368,10 @@ function App() {
         selectedSourceId: result.source.id,
         channelsBySource: {
           ...current.channelsBySource,
-          [result.source.id]: applyFavoriteFlags(result.channels, favoriteChannelIds),
+          [result.source.id]: applyHiddenFlags(
+            applyFavoriteFlags(result.channels, favoriteChannelIds),
+            hiddenChannelIds,
+          ),
         },
         malformedEntriesBySource: {
           ...current.malformedEntriesBySource,
@@ -368,6 +379,7 @@ function App() {
         },
         favoriteChannelIds,
         recentChannelIds,
+        hiddenChannelIds,
       };
     });
     setSelectedGroup("All Channels");
@@ -445,6 +457,24 @@ function App() {
         channelsBySource: mapChannels(current.channelsBySource, (item) => ({
           ...item,
           isFavorite: favoriteChannelIds.includes(item.id),
+        })),
+      };
+    });
+  }
+
+  function toggleHidden(channel: Channel) {
+    setCatalog((current) => {
+      const isHidden = current.hiddenChannelIds.includes(channel.id);
+      const hiddenChannelIds = isHidden
+        ? current.hiddenChannelIds.filter((id) => id !== channel.id)
+        : [...current.hiddenChannelIds, channel.id];
+
+      return {
+        ...current,
+        hiddenChannelIds,
+        channelsBySource: mapChannels(current.channelsBySource, (item) => ({
+          ...item,
+          isHidden: hiddenChannelIds.includes(item.id),
         })),
       };
     });
@@ -546,6 +576,7 @@ function App() {
           onSelectGroup={selectGroup}
           onSearchQueryChange={setSearchQuery}
           onToggleFavorite={toggleFavorite}
+          onToggleHidden={toggleHidden}
           onWatch={watchSelectedChannel}
         />
       ) : null}
@@ -573,6 +604,7 @@ function App() {
           onLastChannel={jumpToLastChannel}
           onPlaybackValidated={updateChannelValidationStatus}
           onToggleFavorite={toggleFavorite}
+          onToggleHidden={toggleHidden}
         />
       ) : null}
     </main>
@@ -780,6 +812,7 @@ function LiveTvBrowser({
   onSelectGroup,
   onSearchQueryChange,
   onToggleFavorite,
+  onToggleHidden,
   onWatch,
 }: {
   channels: Channel[];
@@ -795,6 +828,7 @@ function LiveTvBrowser({
   onSelectGroup: (group: string) => void;
   onSearchQueryChange: (query: string) => void;
   onToggleFavorite: (channel: Channel) => void;
+  onToggleHidden: (channel: Channel) => void;
   onWatch: () => void;
 }) {
   const categoryPanelRef = useRef<HTMLElement>(null);
@@ -980,13 +1014,24 @@ function LiveTvBrowser({
         <div className="program-body">
           <div className="program-title-row">
             <h2>{program.title}</h2>
-            <button
-              className={selectedChannel?.isFavorite ? "icon-button is-favorite" : "icon-button"}
-              aria-label="Favorite"
-              onClick={() => selectedChannel && onToggleFavorite(selectedChannel)}
-            >
-              <Star size={28} />
-            </button>
+            <div className="program-actions">
+              <button
+                className={selectedChannel?.isFavorite ? "icon-button is-favorite" : "icon-button"}
+                aria-label="Favorite"
+                onClick={() => selectedChannel && onToggleFavorite(selectedChannel)}
+              >
+                <Star size={28} />
+              </button>
+              {selectedChannel ? (
+                <button
+                  className="icon-button"
+                  aria-label={selectedChannel.isHidden ? "Show channel" : "Hide channel"}
+                  onClick={() => onToggleHidden(selectedChannel)}
+                >
+                  <Trash2 size={28} />
+                </button>
+              ) : null}
+            </div>
           </div>
           <p className="program-meta">{selectedChannel?.group ?? "Live"} · LIVE from user playlist</p>
           <p>{program.description}</p>
@@ -1196,6 +1241,7 @@ function PlayerScreen({
   onLastChannel,
   onPlaybackValidated,
   onToggleFavorite,
+  onToggleHidden,
 }: {
   channel: Channel;
   program: { title: string; next: string; time: string; progress: number; description: string };
@@ -1209,6 +1255,7 @@ function PlayerScreen({
     validationStatus: Channel["validationStatus"],
   ) => void;
   onToggleFavorite: (channel: Channel) => void;
+  onToggleHidden: (channel: Channel) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLElement>(null);
@@ -1499,6 +1546,13 @@ function PlayerScreen({
         >
           <Heart size={34} />
         </button>
+        <button
+          className="icon-button"
+          aria-label={channel.isHidden ? "Show channel" : "Hide channel"}
+          onClick={() => onToggleHidden(channel)}
+        >
+          <Trash2 size={34} />
+        </button>
         <progress max="100" value="68" />
       </footer>
     </section>
@@ -1596,10 +1650,12 @@ function restoreCatalog(catalog: CatalogState): CatalogState {
     channelsBySource: mapChannels(catalog.channelsBySource, (channel) => ({
       ...channel,
       isFavorite: catalog.favoriteChannelIds.includes(channel.id),
+      isHidden: catalog.hiddenChannelIds.includes(channel.id),
     })),
     malformedEntriesBySource: catalog.malformedEntriesBySource,
     favoriteChannelIds: catalog.favoriteChannelIds,
     recentChannelIds: catalog.recentChannelIds,
+    hiddenChannelIds: catalog.hiddenChannelIds,
   };
 }
 
@@ -1617,6 +1673,13 @@ function applyFavoriteFlags(channels: Channel[], favoriteChannelIds: string[]): 
   return channels.map((channel) => ({
     ...channel,
     isFavorite: favoriteChannelIds.includes(channel.id),
+  }));
+}
+
+function applyHiddenFlags(channels: Channel[], hiddenChannelIds: string[]): Channel[] {
+  return channels.map((channel) => ({
+    ...channel,
+    isHidden: hiddenChannelIds.includes(channel.id),
   }));
 }
 

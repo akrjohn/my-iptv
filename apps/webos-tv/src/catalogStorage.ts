@@ -7,6 +7,7 @@ export type CatalogState = {
   malformedEntriesBySource: Record<string, number>;
   favoriteChannelIds: string[];
   recentChannelIds: string[];
+  hiddenChannelIds: string[];
 };
 
 const databaseName = "my-iptv";
@@ -152,6 +153,7 @@ function isCatalogState(value: unknown): value is CatalogState {
     Boolean(catalog.malformedEntriesBySource) &&
     typeof catalog.malformedEntriesBySource === "object" &&
     Array.isArray(catalog.favoriteChannelIds) &&
-    Array.isArray(catalog.recentChannelIds)
+    Array.isArray(catalog.recentChannelIds) &&
+    Array.isArray(catalog.hiddenChannelIds)
   );
 }
