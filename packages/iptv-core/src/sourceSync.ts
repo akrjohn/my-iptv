@@ -40,9 +40,10 @@ export async function syncM3uPlaylist({
   fetcher = fetch,
 }: SyncM3uPlaylistInput): Promise<SyncM3uPlaylistResult> {
   const source = createSyncingSource(sourceId, name, playlistUrl, now);
+  const fetchUrl = normalizePlaylistUrlForFetch(playlistUrl);
 
   try {
-    const response = await fetcher(playlistUrl);
+    const response = await fetcher(fetchUrl);
 
     if (!response.ok) {
       return fail(source, classifyHttpStatus(response.status, now));
@@ -74,6 +75,30 @@ export async function syncM3uPlaylist({
   } catch (error) {
     return fail(source, classifyFetchError(error, now));
   }
+}
+
+export function normalizePlaylistUrlForFetch(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const pathParts = parsed.pathname.split("/").filter(Boolean);
+    const [owner, repo, mode, ref, ...filePath] = pathParts;
+
+    if (
+      parsed.hostname === "github.com" &&
+      owner &&
+      repo &&
+      (mode === "blob" || mode === "raw") &&
+      ref &&
+      filePath.length > 0
+    ) {
+      const rawPath = [owner, repo, ref, ...filePath].join("/");
+      return `https://raw.githubusercontent.com/${rawPath}${parsed.search}`;
+    }
+  } catch {
+    return url;
+  }
+
+  return url;
 }
 
 function createSyncingSource(

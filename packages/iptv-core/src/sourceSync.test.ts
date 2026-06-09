@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { syncM3uPlaylist, type PlaylistFetcher } from "./sourceSync";
+import { normalizePlaylistUrlForFetch, syncM3uPlaylist, type PlaylistFetcher } from "./sourceSync";
 
 const playlist = `#EXTM3U
 #EXTINF:-1 tvg-id="demo-news" tvg-name="Demo News" group-title="News",Demo News
@@ -39,6 +39,23 @@ describe("syncM3uPlaylist", () => {
     });
     expect(result.channels).toHaveLength(1);
     expect(result.channels[0]?.streamFormat).toBe("hls");
+  });
+
+  it("fetches GitHub blob playlist URLs from the raw content endpoint", async () => {
+    let fetchedUrl = "";
+
+    const result = await syncM3uPlaylist({
+      sourceId: "source-1",
+      name: "Sports",
+      playlistUrl: "https://github.com/sacuar/MyIPTV/blob/main/sports.m3u",
+      fetcher: (url) => {
+        fetchedUrl = url;
+        return response(playlist);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchedUrl).toBe("https://raw.githubusercontent.com/sacuar/MyIPTV/main/sports.m3u");
   });
 
   it("classifies empty playlists as empty source failures", async () => {
@@ -91,5 +108,19 @@ describe("syncM3uPlaylist", () => {
     }
 
     expect(result.error.code).toBe("authentication_failed");
+  });
+});
+
+describe("normalizePlaylistUrlForFetch", () => {
+  it("converts GitHub blob URLs to raw URLs", () => {
+    expect(normalizePlaylistUrlForFetch("https://github.com/sacuar/MyIPTV/blob/main/sports.m3u")).toBe(
+      "https://raw.githubusercontent.com/sacuar/MyIPTV/main/sports.m3u",
+    );
+  });
+
+  it("leaves non-GitHub URLs unchanged", () => {
+    expect(normalizePlaylistUrlForFetch("https://iptv-org.github.io/iptv/regions/amer.m3u")).toBe(
+      "https://iptv-org.github.io/iptv/regions/amer.m3u",
+    );
   });
 });
