@@ -255,12 +255,11 @@ function App() {
       }
 
       const nextViewByKey: Record<string, View> = {
-        "1": "setup",
-        "2": "live",
-        "3": "favorites",
-        "4": "recents",
-        "5": "doctor",
-        "6": "settings",
+        "1": "live",
+        "2": "favorites",
+        "3": "recents",
+        "4": "doctor",
+        "5": "settings",
       };
 
       const nextView = nextViewByKey[event.key];
@@ -951,7 +950,6 @@ function NavigationRail({
   onOpenSearch: () => void;
 }) {
   const items = [
-    { id: "setup" as const, label: "Sources", icon: Database },
     { id: "live" as const, label: "Live TV", icon: Tv },
     { id: "favorites" as const, label: "Favorites", icon: Heart },
     { id: "recents" as const, label: "Recents", icon: Clock3 },
