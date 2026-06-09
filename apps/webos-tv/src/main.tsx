@@ -1452,7 +1452,7 @@ function PlayerScreen({
           </p>
         </div>
         <div className="player-controls" aria-label="Playback controls">
-          <button className="icon-button" aria-label="Hide player info" onClick={() => setIsOverlayVisible(false)}>
+          <button className="icon-button" aria-label={isOverlayVisible ? "Hide player info" : "Show player info"} onClick={() => setIsOverlayVisible((current) => !current)}>
             <Info size={34} />
           </button>
           <button
