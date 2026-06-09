@@ -224,8 +224,16 @@ p {
 }
 
 .category-panel {
+  max-height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 34px;
   border-right: 1px solid var(--outline);
   padding-right: 28px;
+}
+
+.category-panel::-webkit-scrollbar {
+  display: none;
 }
 
 .category-panel h2 {
@@ -1258,6 +1266,7 @@ input {
   }
 
   .category-panel {
+    padding-bottom: 24px;
     padding-right: 18px;
   }
 

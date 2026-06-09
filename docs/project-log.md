@@ -271,6 +271,45 @@ Move durable catalog persistence from `localStorage` toward IndexedDB:
 4. Add storage failure handling and a reset path.
 5. Verify large playlist catalogs do not exceed browser storage limits or freeze the UI.
 
+## 2026-06-09: IndexedDB Catalog Storage
+
+### Completed
+
+- Added an app-local catalog storage adapter.
+- Moved catalog persistence from synchronous `localStorage` writes to IndexedDB.
+- Added a fallback localStorage adapter for environments without IndexedDB.
+- Added one-time migration from the prototype `localStorage` catalog key into IndexedDB.
+- Removed migrated legacy localStorage data after successful IndexedDB write.
+- Kept demo catalog fallback when storage load fails or saved data is unusable.
+- Added explicit storage reset during Clear Local Data.
+
+### Verification
+
+These commands passed:
+
+```sh
+pnpm test
+pnpm typecheck
+pnpm build
+```
+
+Browser verification confirmed:
+
+- Synced source catalog persisted in IndexedDB across page reload.
+- The legacy `localStorage` catalog migrated into IndexedDB.
+- The legacy `localStorage` key was removed after migration.
+- No browser console errors were observed.
+
+### Recommended Next Build Step
+
+Add channel search and remote-first list navigation polish:
+
+1. Implement channel search against active catalog name/group metadata.
+2. Keep search usable from keyboard and remote-style focus.
+3. Add empty search state and clear action.
+4. Preserve fixed Live TV layout while filtering.
+5. Consider list virtualization for large playlists after search is functional.
+
 ## 2026-06-09: Player Retry and Playback Status
 
 ### Completed

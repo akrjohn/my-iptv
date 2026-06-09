@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -37,6 +37,7 @@ import {
   type SourceSyncError,
 } from "@my-iptv/iptv-core";
 import { samplePlaylist } from "./samplePlaylist";
+import { createCatalogStorage, type CatalogState } from "./catalogStorage";
 import "./styles.css";
 
 type View = "setup" | "live" | "doctor" | "settings" | "player";
@@ -51,15 +52,6 @@ const demoSource: M3uSource = {
   updatedAt: new Date(0).toISOString(),
   lastSyncedAt: new Date(0).toISOString(),
   syncStatus: "success",
-};
-
-type CatalogState = {
-  sources: M3uSource[];
-  selectedSourceId: string;
-  channelsBySource: Record<string, Channel[]>;
-  malformedEntriesBySource: Record<string, number>;
-  favoriteChannelIds: string[];
-  recentChannelIds: string[];
 };
 
 type SourceSetupStatus =
@@ -77,7 +69,7 @@ type SourceActionStatus =
 
 type PlayerStatus = "idle" | "playing" | "buffering" | "failed" | "retrying";
 
-const storageKey = "my-iptv.catalog.v1";
+const catalogStorage = createCatalogStorage();
 
 const demoCatalog: CatalogState = {
   sources: [demoSource],
@@ -117,10 +109,12 @@ const demoPrograms = [
 
 function App() {
   const [view, setView] = useState<View>("live");
-  const [catalog, setCatalog] = useState<CatalogState>(loadCatalog);
+  const [catalog, setCatalog] = useState<CatalogState>(demoCatalog);
+  const [hasLoadedCatalog, setHasLoadedCatalog] = useState(false);
   const [setupStatus, setSetupStatus] = useState<SourceSetupStatus>({ state: "idle" });
   const [sourceActionStatus, setSourceActionStatus] = useState<SourceActionStatus>({ state: "idle" });
   const [selectedGroup, setSelectedGroup] = useState("All Channels");
+  const [categoryScrollTop, setCategoryScrollTop] = useState(0);
   const channels = catalog.channelsBySource[catalog.selectedSourceId] ?? [];
   const currentSource =
     catalog.sources.find((source) => source.id === catalog.selectedSourceId) ?? catalog.sources[0];
@@ -128,8 +122,48 @@ function App() {
   const [previousChannelId, setPreviousChannelId] = useState("");
 
   useEffect(() => {
-    saveCatalog(catalog);
-  }, [catalog]);
+    let isActive = true;
+
+    async function loadSavedCatalog() {
+      try {
+        const savedCatalog = await catalogStorage.load();
+
+        if (isActive && savedCatalog) {
+          setCatalog(restoreCatalog(savedCatalog));
+        }
+      } catch {
+        if (isActive) {
+          setSourceActionStatus({
+            state: "error",
+            message: "Catalog storage could not be loaded. Demo data is available.",
+          });
+        }
+      } finally {
+        if (isActive) {
+          setHasLoadedCatalog(true);
+        }
+      }
+    }
+
+    void loadSavedCatalog();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedCatalog) {
+      return;
+    }
+
+    void catalogStorage.save(catalog).catch(() => {
+      setSourceActionStatus({
+        state: "error",
+        message: "Catalog storage could not be saved. Use Clear Local Data if this persists.",
+      });
+    });
+  }, [catalog, hasLoadedCatalog]);
 
   useEffect(() => {
     if (!channels.some((channel) => channel.id === selectedChannelId)) {
@@ -349,6 +383,12 @@ function App() {
   }
 
   function clearLocalData() {
+    void catalogStorage.reset().catch(() => {
+      setSourceActionStatus({
+        state: "error",
+        message: "Catalog storage could not be fully reset.",
+      });
+    });
     setCatalog(demoCatalog);
     setSetupStatus({ state: "idle" });
     setSourceActionStatus({ state: "success", message: "Local source data was reset to the demo catalog." });
@@ -461,7 +501,9 @@ function App() {
           groups={groups}
           selectedChannel={selectedChannel}
           selectedGroup={selectedGroup}
+          categoryScrollTop={categoryScrollTop}
           onSelectChannel={selectChannel}
+          onCategoryScroll={setCategoryScrollTop}
           onSelectGroup={selectGroup}
           onToggleFavorite={toggleFavorite}
           onWatch={watchSelectedChannel}
@@ -679,6 +721,8 @@ function LiveTvBrowser({
   groups,
   selectedChannel,
   selectedGroup,
+  categoryScrollTop,
+  onCategoryScroll,
   onSelectChannel,
   onSelectGroup,
   onToggleFavorite,
@@ -688,22 +732,41 @@ function LiveTvBrowser({
   groups: string[];
   selectedChannel?: Channel;
   selectedGroup: string;
+  categoryScrollTop: number;
+  onCategoryScroll: (scrollTop: number) => void;
   onSelectChannel: (channel: Channel) => void;
   onSelectGroup: (group: string) => void;
   onToggleFavorite: (channel: Channel) => void;
   onWatch: () => void;
 }) {
+  const categoryPanelRef = useRef<HTMLElement>(null);
   const program = demoPrograms[Math.max(0, channels.findIndex((channel) => channel.id === selectedChannel?.id)) % demoPrograms.length];
+
+  useLayoutEffect(() => {
+    const panel = categoryPanelRef.current;
+
+    if (panel) {
+      panel.scrollTop = categoryScrollTop;
+    }
+  }, [categoryScrollTop]);
 
   return (
     <section className="live-grid">
-      <aside className="category-panel" aria-label="Categories">
+      <aside
+        className="category-panel"
+        aria-label="Categories"
+        ref={categoryPanelRef}
+        onScroll={(event) => onCategoryScroll(event.currentTarget.scrollTop)}
+      >
         <h2>Categories</h2>
         {groups.map((group) => (
           <button
             className={selectedGroup === group ? "category-button is-active" : "category-button"}
             key={group}
-            onClick={() => onSelectGroup(group)}
+            onClick={() => {
+              onCategoryScroll(categoryPanelRef.current?.scrollTop ?? 0);
+              onSelectGroup(group);
+            }}
           >
             {group}
             {selectedGroup === group ? <span /> : null}
@@ -1338,54 +1401,25 @@ function SettingsCard({
   );
 }
 
-function loadCatalog(): CatalogState {
-  const rawCatalog = window.localStorage.getItem(storageKey);
+function restoreCatalog(catalog: CatalogState): CatalogState {
+  const sources = catalog.sources.length > 0 ? catalog.sources : demoCatalog.sources;
+  const selectedSourceId = catalog.selectedSourceId || sources[0]?.id;
 
-  if (!rawCatalog) {
+  if (!selectedSourceId || !catalog.channelsBySource[selectedSourceId]) {
     return demoCatalog;
   }
 
-  try {
-    const parsedCatalog = JSON.parse(rawCatalog) as Partial<CatalogState>;
-    const sources = Array.isArray(parsedCatalog.sources) ? parsedCatalog.sources : demoCatalog.sources;
-    const selectedSourceId =
-      typeof parsedCatalog.selectedSourceId === "string" ? parsedCatalog.selectedSourceId : sources[0]?.id;
-    const channelsBySource =
-      parsedCatalog.channelsBySource && typeof parsedCatalog.channelsBySource === "object"
-        ? parsedCatalog.channelsBySource
-        : demoCatalog.channelsBySource;
-    const favoriteChannelIds = Array.isArray(parsedCatalog.favoriteChannelIds)
-      ? parsedCatalog.favoriteChannelIds
-      : [];
-    const recentChannelIds = Array.isArray(parsedCatalog.recentChannelIds)
-      ? parsedCatalog.recentChannelIds
-      : [];
-
-    if (!selectedSourceId || !channelsBySource[selectedSourceId]) {
-      return demoCatalog;
-    }
-
-    return {
-      sources,
-      selectedSourceId,
-      channelsBySource: mapChannels(channelsBySource, (channel) => ({
-        ...channel,
-        isFavorite: favoriteChannelIds.includes(channel.id),
-      })),
-      malformedEntriesBySource:
-        parsedCatalog.malformedEntriesBySource && typeof parsedCatalog.malformedEntriesBySource === "object"
-          ? parsedCatalog.malformedEntriesBySource
-          : {},
-      favoriteChannelIds,
-      recentChannelIds,
-    };
-  } catch {
-    return demoCatalog;
-  }
-}
-
-function saveCatalog(catalog: CatalogState) {
-  window.localStorage.setItem(storageKey, JSON.stringify(catalog));
+  return {
+    sources,
+    selectedSourceId,
+    channelsBySource: mapChannels(catalog.channelsBySource, (channel) => ({
+      ...channel,
+      isFavorite: catalog.favoriteChannelIds.includes(channel.id),
+    })),
+    malformedEntriesBySource: catalog.malformedEntriesBySource,
+    favoriteChannelIds: catalog.favoriteChannelIds,
+    recentChannelIds: catalog.recentChannelIds,
+  };
 }
 
 function upsertSource(sources: M3uSource[], source: M3uSource): M3uSource[] {
