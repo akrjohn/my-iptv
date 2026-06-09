@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "@my-iptv/iptv-core": ["../../packages/iptv-core/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}
