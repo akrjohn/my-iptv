@@ -565,6 +565,7 @@ function App() {
       {view === "player" && selectedChannel ? (
         <PlayerScreen
           channel={selectedChannel}
+          program={demoPrograms[Math.max(0, channels.findIndex((c) => c.id === selectedChannel.id)) % demoPrograms.length]}
           hasLastChannel={Boolean(previousChannelId)}
           onBack={() => setView("live")}
           onChannelDown={() => changePlayerChannel(-1)}
@@ -1187,6 +1188,7 @@ function SettingsScreen({
 
 function PlayerScreen({
   channel,
+  program,
   hasLastChannel,
   onBack,
   onChannelDown,
@@ -1196,6 +1198,7 @@ function PlayerScreen({
   onToggleFavorite,
 }: {
   channel: Channel;
+  program: { title: string; next: string; time: string; progress: number; description: string };
   hasLastChannel: boolean;
   onBack: () => void;
   onChannelDown: () => void;
@@ -1439,9 +1442,9 @@ function PlayerScreen({
           <h1>{channel.name}</h1>
         </div>
         <div>
-          <h2>{demoPrograms[0].title}</h2>
+          <h2>{program.title}</h2>
           <p>
-            Ends in 42 mins · {channel.streamFormat.toUpperCase()} ·{" "}
+            {program.time} · {channel.streamFormat.toUpperCase()} ·{" "}
             {canSeek ? "Seek enabled" : "Live seeking unavailable"}
           </p>
           <p className={`player-status is-${playerStatus}`}>
