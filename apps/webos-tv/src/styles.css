@@ -992,6 +992,18 @@ input {
   margin-top: 16px;
 }
 
+.source-row.is-failed {
+  border-color: rgba(255, 180, 171, 0.3);
+}
+
+.source-row-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--danger);
+  font-size: 15px;
+  font-weight: 800;
+}
+
 .source-row-actions {
   display: flex;
   gap: 12px;
@@ -1103,6 +1115,46 @@ input {
 .player-screen.is-overlay-hidden .player-gradient {
   opacity: 0;
   pointer-events: none;
+}
+
+.player-error-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 10;
+}
+
+.player-error-box {
+  text-align: center;
+  max-width: 480px;
+  padding: 32px;
+}
+
+.player-error-icon {
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 18px;
+  border: 3px solid var(--danger);
+  border-radius: 999px;
+  color: var(--danger);
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 66px;
+  text-align: center;
+}
+
+.player-error-box h2 {
+  margin-bottom: 12px;
+  color: var(--text);
+  font-size: 32px;
+}
+
+.player-error-box p {
+  margin-bottom: 24px;
+  color: var(--muted);
+  font-size: 18px;
 }
 
 .player-header {

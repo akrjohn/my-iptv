@@ -399,6 +399,10 @@ function App() {
       return;
     }
 
+    if (!window.confirm(`Delete "${source.name}"? This will remove all channels and cannot be undone.`)) {
+      return;
+    }
+
     setCatalog((current) => {
       const sources = current.sources.filter((item) => item.id !== source.id);
       const channelsBySource = { ...current.channelsBySource };
@@ -429,6 +433,10 @@ function App() {
   }
 
   function clearLocalData() {
+    if (!window.confirm("Clear all local data? This will reset to the demo catalog and cannot be undone.")) {
+      return;
+    }
+
     void catalogStorage.reset().catch(() => {
       setSourceActionStatus({
         state: "error",
@@ -1209,9 +1217,9 @@ function SettingsScreen({
         <aside className="settings-menu">
           <h1>Settings</h1>
           <SettingsCard icon={<Database />} title="Manage Sources" text="Add or remove M3U playlists and EPG links." active />
-          <SettingsCard icon={<RefreshCw />} title="Refresh Content" text="Force update channels and guide data." />
+          <SettingsCard icon={<RefreshCw />} title="Refresh Content" text="Force update channels and guide data." onClick={() => selectedSource?.playlistUrl && onResyncSource(selectedSource)} />
           <SettingsCard icon={<Shield />} title="Parental PIN" text="Restrict access to sensitive content." />
-          <SettingsCard icon={<Trash2 />} title="Clear Data" text="Reset local sources, caches, and settings." danger />
+          <SettingsCard icon={<Trash2 />} title="Clear Data" text="Reset local sources, caches, and settings." danger onClick={onClearLocalData} />
         </aside>
 
         <section className="settings-detail">
@@ -1222,13 +1230,18 @@ function SettingsScreen({
             </p>
           ) : null}
           {sources.map((source) => (
-            <div className="source-row" key={source.id}>
+            <div className={`source-row${source.syncStatus === "failed" ? " is-failed" : ""}`} key={source.id}>
               <div>
                 <strong>{source.name}</strong>
                 <span>
                   {source.id === selectedSourceId ? "Active" : "Saved"} ·{" "}
                   {channelsBySource[source.id]?.length ?? 0} Channels · {formatSyncStatus(source)}
                 </span>
+                {source.syncError ? (
+                  <span className="source-row-error">
+                    {source.syncError.message}
+                  </span>
+                ) : null}
               </div>
               <div className="source-row-actions">
                 <button
@@ -1510,7 +1523,20 @@ function PlayerScreen({
         onVolumeChange={(event) => setIsMuted(event.currentTarget.muted)}
       />
       <div className="player-gradient" />
-      {!isOverlayVisible && (playerStatus === "buffering" || playerStatus === "failed" || playerStatus === "retrying") ? (
+      {playerStatus === "failed" ? (
+        <div className="player-error-overlay">
+          <div className="player-error-box">
+            <p className="player-error-icon">!</p>
+            <h2>Playback Failed</h2>
+            <p>The stream could not be loaded. It may be offline or unreachable.</p>
+            <button className="retry-button" onClick={() => void retryPlayback()}>
+              <RefreshCw size={24} />
+              Retry Stream
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {!isOverlayVisible && (playerStatus === "buffering" || playerStatus === "retrying") ? (
         <p className={`player-mini-status is-${playerStatus}`}>{formatPlayerStatus(playerStatus)}</p>
       ) : null}
       <header className="player-header">
@@ -1667,15 +1693,17 @@ function SettingsCard({
   text,
   active,
   danger,
+  onClick,
 }: {
   icon: React.ReactNode;
   title: string;
   text: string;
   active?: boolean;
   danger?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <button className={active ? "settings-card is-active" : danger ? "settings-card is-danger" : "settings-card"}>
+    <button className={active ? "settings-card is-active" : danger ? "settings-card is-danger" : "settings-card"} onClick={onClick}>
       {icon}
       <strong>{title}</strong>
       <span>{text}</span>
