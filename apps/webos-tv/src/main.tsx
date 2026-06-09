@@ -8,7 +8,6 @@ import {
   Clock3,
   Database,
   FastForward,
-  FileText,
   Heart,
   Info,
   Link,
@@ -38,14 +37,22 @@ import {
   parseXmltvDate,
   syncEpg,
   syncM3uPlaylist,
+  syncXtream,
   type Channel,
   type ChannelOverride,
   type M3uSource,
   type SourceSyncError,
+  type XtreamSource,
   type XmltvData,
   type SourceHealthReport,
   type SourceRecommendation,
 } from "@my-iptv/iptv-core";
+import {
+  formatM3uSaveSuccessMessage,
+  formatM3uTestSuccessMessage,
+  formatXtreamSaveSuccessMessage,
+  formatXtreamTestSuccessMessage,
+} from "./sourceSetupMessages";
 import { samplePlaylist } from "./samplePlaylist";
 import { createSampleEpg } from "./sampleEpg";
 import { createCatalogStorage, type CatalogState } from "./catalogStorage";
@@ -307,12 +314,12 @@ function App() {
     setSelectedChannelId(result.channels[0]?.id ?? "");
     setSetupStatus({
       state: "success",
-      message: `${result.channels.length} channels synced locally.`,
+      message: formatM3uSaveSuccessMessage(result.channels.length),
     });
     setView("live");
   }
 
-  async function testPlaylistConnection({ name, playlistUrl, epgUrl: _epgUrl }: { name: string; playlistUrl: string; epgUrl?: string }) {
+  async function testPlaylistConnection({ name, playlistUrl, epgUrl }: { name: string; playlistUrl: string; epgUrl?: string }) {
     setSetupStatus({ state: "testing" });
     const result = await syncM3uPlaylist({
       sourceId: createSourceId(`test-${name}`),
@@ -325,82 +332,221 @@ function App() {
       return;
     }
 
+    if (epgUrl) {
+      await syncEpg({ sourceId: result.source.id, epgUrl });
+    }
+
     setSetupStatus({
       state: "success",
-      message: `Connection OK. ${result.channels.length} channels parsed; ${result.malformedEntries} malformed entries found.`,
+      message: formatM3uTestSuccessMessage(result.channels.length, result.malformedEntries),
     });
   }
 
-  async function resyncSource(source: M3uSource) {
-    if (!source.playlistUrl) {
+  async function syncXtreamSource({ name, serverUrl, username, password }: { name: string; serverUrl: string; username: string; password: string }) {
+    setSetupStatus({ state: "syncing" });
+    const result = await syncXtream({
+      sourceId: createSourceId(name),
+      name,
+      serverUrl,
+      username,
+      password,
+    });
+
+    if (!result.ok) {
+      setSetupStatus({ state: "error", error: result.error });
+      setCatalog((current) => ({
+        ...current,
+        sources: upsertSource(current.sources, result.source),
+      }));
+      return;
+    }
+
+    setCatalog((current) => ({
+      sources: upsertSource(current.sources, result.source),
+      selectedSourceId: result.source.id,
+      channelsBySource: {
+        ...current.channelsBySource,
+        [result.source.id]: applyHiddenFlags(
+          applyFavoriteFlags(result.channels, current.favoriteChannelIds),
+          current.hiddenChannelIds,
+        ),
+      },
+      malformedEntriesBySource: {
+        ...current.malformedEntriesBySource,
+        [result.source.id]: 0,
+      },
+      epgBySource: current.epgBySource,
+      channelOverrides: current.channelOverrides,
+      favoriteChannelIds: current.favoriteChannelIds,
+      recentChannelIds: current.recentChannelIds,
+      hiddenChannelIds: current.hiddenChannelIds,
+    }));
+    setSelectedGroup("All Channels");
+    setSelectedChannelId(result.channels[0]?.id ?? "");
+    setSetupStatus({
+      state: "success",
+      message: formatXtreamSaveSuccessMessage(result.channels.length),
+    });
+    setView("live");
+  }
+
+  async function testXtreamConnection({ name, serverUrl, username, password }: { name: string; serverUrl: string; username: string; password: string }) {
+    setSetupStatus({ state: "testing" });
+    const result = await syncXtream({
+      sourceId: createSourceId(`test-${name}`),
+      name,
+      serverUrl,
+      username,
+      password,
+    });
+
+    if (!result.ok) {
+      setSetupStatus({ state: "error", error: result.error });
+      return;
+    }
+
+    setSetupStatus({
+      state: "success",
+      message: formatXtreamTestSuccessMessage(result.channels.length),
+    });
+  }
+
+  async function resyncSource(source: M3uSource | XtreamSource) {
+    if (source.type === "m3u") {
+      if (!source.playlistUrl) {
+        setSourceActionStatus({
+          state: "error",
+          message: "This source does not have a saved playlist URL to resync.",
+        });
+        return;
+      }
+
+      setSourceActionStatus({ state: "working", message: `Resyncing ${source.name}...` });
+      const result = await syncM3uPlaylist({
+        sourceId: source.id,
+        name: source.name,
+        playlistUrl: source.playlistUrl,
+      });
+
+      if (!result.ok) {
+        setCatalog((current) => ({
+          ...current,
+          sources: upsertSource(current.sources, {
+            ...source,
+            updatedAt: result.source.updatedAt,
+            syncStatus: "failed",
+            syncError: result.error,
+          }),
+        }));
+        setSourceActionStatus({ state: "error", message: result.error.message });
+        return;
+      }
+
+      setCatalog((current) => {
+        const nextChannels = applyFavoriteFlags(result.channels, current.favoriteChannelIds);
+        const nextChannelIds = new Set(nextChannels.map((channel) => channel.id));
+        const favoriteChannelIds = current.favoriteChannelIds.filter((id) => nextChannelIds.has(id));
+        const recentChannelIds = current.recentChannelIds.filter((id) => nextChannelIds.has(id));
+        const hiddenChannelIds = current.hiddenChannelIds.filter((id) => nextChannelIds.has(id));
+
+        return {
+          ...current,
+          sources: upsertSource(current.sources, {
+            ...source,
+            ...result.source,
+            createdAt: source.createdAt,
+          }),
+          selectedSourceId: result.source.id,
+          channelsBySource: {
+            ...current.channelsBySource,
+            [result.source.id]: applyHiddenFlags(
+              applyFavoriteFlags(result.channels, favoriteChannelIds),
+              hiddenChannelIds,
+            ),
+          },
+          malformedEntriesBySource: {
+            ...current.malformedEntriesBySource,
+            [result.source.id]: result.malformedEntries,
+          },
+          favoriteChannelIds,
+          recentChannelIds,
+          hiddenChannelIds,
+        };
+      });
+      setSelectedGroup("All Channels");
+      setSelectedChannelId(result.channels[0]?.id ?? "");
       setSourceActionStatus({
-        state: "error",
-        message: "This source does not have a saved playlist URL to resync.",
+        state: "success",
+        message: `${source.name} resynced. ${result.channels.length} channels available.`,
       });
       return;
     }
 
-    setSourceActionStatus({ state: "working", message: `Resyncing ${source.name}...` });
-    const result = await syncM3uPlaylist({
-      sourceId: source.id,
-      name: source.name,
-      playlistUrl: source.playlistUrl,
-    });
+    if (source.type === "xtream") {
+      setSourceActionStatus({ state: "working", message: `Resyncing ${source.name}...` });
+      const result = await syncXtream({
+        sourceId: source.id,
+        name: source.name,
+        serverUrl: source.serverUrl,
+        username: source.usernameRef,
+        password: source.passwordRef,
+      });
 
-    if (!result.ok) {
-      setCatalog((current) => ({
-        ...current,
-        sources: upsertSource(current.sources, {
-          ...source,
-          updatedAt: result.source.updatedAt,
-          syncStatus: "failed",
-          syncError: result.error,
-        }),
-      }));
-      setSourceActionStatus({ state: "error", message: result.error.message });
-      return;
+      if (!result.ok) {
+        setCatalog((current) => ({
+          ...current,
+          sources: upsertSource(current.sources, {
+            ...source,
+            updatedAt: result.source.updatedAt,
+            syncStatus: "failed",
+            syncError: result.error,
+          }),
+        }));
+        setSourceActionStatus({ state: "error", message: result.error.message });
+        return;
+      }
+
+      setCatalog((current) => {
+        const nextChannels = applyFavoriteFlags(result.channels, current.favoriteChannelIds);
+        const nextChannelIds = new Set(nextChannels.map((channel) => channel.id));
+        const favoriteChannelIds = current.favoriteChannelIds.filter((id) => nextChannelIds.has(id));
+        const recentChannelIds = current.recentChannelIds.filter((id) => nextChannelIds.has(id));
+        const hiddenChannelIds = current.hiddenChannelIds.filter((id) => nextChannelIds.has(id));
+
+        return {
+          ...current,
+          sources: upsertSource(current.sources, {
+            ...source,
+            ...result.source,
+            createdAt: source.createdAt,
+          }),
+          selectedSourceId: result.source.id,
+          channelsBySource: {
+            ...current.channelsBySource,
+            [result.source.id]: applyHiddenFlags(
+              applyFavoriteFlags(result.channels, favoriteChannelIds),
+              hiddenChannelIds,
+            ),
+          },
+          malformedEntriesBySource: {
+            ...current.malformedEntriesBySource,
+            [result.source.id]: 0,
+          },
+          favoriteChannelIds,
+          recentChannelIds,
+          hiddenChannelIds,
+        };
+      });
+      setSelectedGroup("All Channels");
+      setSelectedChannelId(result.channels[0]?.id ?? "");
+      setSourceActionStatus({
+        state: "success",
+        message: `${source.name} resynced. ${result.channels.length} channels available.`,
+      });
     }
-
-    setCatalog((current) => {
-      const nextChannels = applyFavoriteFlags(result.channels, current.favoriteChannelIds);
-      const nextChannelIds = new Set(nextChannels.map((channel) => channel.id));
-      const favoriteChannelIds = current.favoriteChannelIds.filter((id) => nextChannelIds.has(id));
-      const recentChannelIds = current.recentChannelIds.filter((id) => nextChannelIds.has(id));
-      const hiddenChannelIds = current.hiddenChannelIds.filter((id) => nextChannelIds.has(id));
-
-      return {
-        ...current,
-        sources: upsertSource(current.sources, {
-          ...source,
-          ...result.source,
-          createdAt: source.createdAt,
-        }),
-        selectedSourceId: result.source.id,
-        channelsBySource: {
-          ...current.channelsBySource,
-          [result.source.id]: applyHiddenFlags(
-            applyFavoriteFlags(result.channels, favoriteChannelIds),
-            hiddenChannelIds,
-          ),
-        },
-        malformedEntriesBySource: {
-          ...current.malformedEntriesBySource,
-          [result.source.id]: result.malformedEntries,
-        },
-        favoriteChannelIds,
-        recentChannelIds,
-        hiddenChannelIds,
-      };
-    });
-    setSelectedGroup("All Channels");
-    setSelectedChannelId(result.channels[0]?.id ?? "");
-    setSourceActionStatus({
-      state: "success",
-      message: `${source.name} resynced. ${result.channels.length} channels available.`,
-    });
   }
 
-  function deleteSource(source: M3uSource) {
+  function deleteSource(source: M3uSource | XtreamSource) {
     if (source.id === demoSource.id) {
       setSourceActionStatus({
         state: "error",
@@ -601,8 +747,10 @@ function App() {
       {view === "setup" ? (
         <SourceSetup
           status={setupStatus}
-          onSync={syncPlaylist}
-          onTestConnection={testPlaylistConnection}
+          onSyncM3u={syncPlaylist}
+          onTestM3u={testPlaylistConnection}
+          onSyncXtream={syncXtreamSource}
+          onTestXtream={testXtreamConnection}
         />
       ) : null}
       {view === "live" ? (
@@ -631,7 +779,7 @@ function App() {
           report={healthReport}
           source={currentSource}
           channelOverrides={catalog.channelOverrides}
-          onRefresh={currentSource?.playlistUrl ? () => resyncSource(currentSource) : undefined}
+          onRefresh={currentSource ? () => resyncSource(currentSource) : undefined}
           onApplyOverride={setChannelOverride}
           onRemoveOverride={removeChannelOverride}
         />
@@ -728,46 +876,71 @@ function AppHeader({ kicker }: { kicker: string }) {
 
 function SourceSetup({
   status,
-  onSync,
-  onTestConnection,
+  onSyncM3u,
+  onTestM3u,
+  onSyncXtream,
+  onTestXtream,
 }: {
   status: SourceSetupStatus;
-  onSync: (input: { name: string; playlistUrl: string; epgUrl?: string }) => Promise<void>;
-  onTestConnection: (input: { name: string; playlistUrl: string; epgUrl?: string }) => Promise<void>;
+  onSyncM3u: (input: { name: string; playlistUrl: string; epgUrl?: string }) => Promise<void>;
+  onTestM3u: (input: { name: string; playlistUrl: string; epgUrl?: string }) => Promise<void>;
+  onSyncXtream: (input: { name: string; serverUrl: string; username: string; password: string }) => Promise<void>;
+  onTestXtream: (input: { name: string; serverUrl: string; username: string; password: string }) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [playlistUrl, setPlaylistUrl] = useState("");
   const [epgUrl, setEpgUrl] = useState("");
-  const [sourceType, setSourceType] = useState<"m3u" | "epg">("m3u");
+  const [serverUrl, setServerUrl] = useState("");
+  const [xtreamUsername, setXtreamUsername] = useState("");
+  const [xtreamPassword, setXtreamPassword] = useState("");
+  const [sourceType, setSourceType] = useState<"m3u" | "epg" | "xtream">("m3u");
   const playlistInputRef = useRef<HTMLInputElement>(null);
   const epgInputRef = useRef<HTMLInputElement>(null);
+  const serverInputRef = useRef<HTMLInputElement>(null);
   const isWorking = status.state === "syncing" || status.state === "testing";
-  const canSync = Boolean(name.trim() && playlistUrl.trim() && !isWorking);
+
+  const isM3u = sourceType === "m3u" || sourceType === "epg";
+  const canSyncM3u = Boolean(name.trim() && playlistUrl.trim() && !isWorking);
+  const canSyncXtream = Boolean(name.trim() && serverUrl.trim() && xtreamUsername.trim() && xtreamPassword.trim() && !isWorking);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!canSync) {
-      return;
+    if (isM3u) {
+      if (!canSyncM3u) return;
+      await onSyncM3u({
+        name: name.trim(),
+        playlistUrl: playlistUrl.trim(),
+        epgUrl: epgUrl.trim() || undefined,
+      });
+    } else {
+      if (!canSyncXtream) return;
+      await onSyncXtream({
+        name: name.trim(),
+        serverUrl: serverUrl.trim(),
+        username: xtreamUsername.trim(),
+        password: xtreamPassword,
+      });
     }
-
-    await onSync({
-      name: name.trim(),
-      playlistUrl: playlistUrl.trim(),
-      epgUrl: epgUrl.trim() || undefined,
-    });
   }
 
   async function handleTestConnection() {
-    if (!canSync) {
-      return;
+    if (isM3u) {
+      if (!canSyncM3u) return;
+      await onTestM3u({
+        name: name.trim(),
+        playlistUrl: playlistUrl.trim(),
+        epgUrl: epgUrl.trim() || undefined,
+      });
+    } else {
+      if (!canSyncXtream) return;
+      await onTestXtream({
+        name: name.trim(),
+        serverUrl: serverUrl.trim(),
+        username: xtreamUsername.trim(),
+        password: xtreamPassword,
+      });
     }
-
-    await onTestConnection({
-      name: name.trim(),
-      playlistUrl: playlistUrl.trim(),
-      epgUrl: epgUrl.trim() || undefined,
-    });
   }
 
   return (
@@ -783,10 +956,10 @@ function SourceSetup({
 
       <div className="source-type-grid" aria-label="Source type">
         <button
-          className={sourceType === "m3u" ? "source-type-card is-focused" : "source-type-card"}
+          className={isM3u ? "source-type-card is-focused" : "source-type-card"}
           onClick={() => {
             setSourceType("m3u");
-            playlistInputRef.current?.focus();
+            setTimeout(() => playlistInputRef.current?.focus(), 0);
           }}
         >
           <Link size={34} />
@@ -794,82 +967,114 @@ function SourceSetup({
           <span>Simple link-based playlist import.</span>
         </button>
         <button
-          className={sourceType === "epg" ? "source-type-card is-focused" : "source-type-card"}
+          className={sourceType === "xtream" ? "source-type-card is-focused" : "source-type-card"}
           onClick={() => {
-            setSourceType("epg");
-            epgInputRef.current?.focus();
+            setSourceType("xtream");
+            setTimeout(() => serverInputRef.current?.focus(), 0);
           }}
         >
-          <FileText size={34} />
-          <strong>XMLTV EPG</strong>
-          <span>Optional guide data for current and next programs.</span>
-        </button>
-        <button className="source-type-card">
           <Server size={34} />
           <strong>Xtream Codes</strong>
-          <span>Future API sync for supported providers.</span>
+          <span>API-based provider with built-in categories and EPG.</span>
         </button>
       </div>
 
       <form className="source-form" onSubmit={handleSubmit}>
         <div className="form-fields">
           <label>
-            <span>Playlist Alias</span>
+            <span>Source Alias</span>
             <input
               autoComplete="off"
-              placeholder="e.g. Home playlist"
+              placeholder="e.g. My Provider"
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
           </label>
-          <label>
-            <span>M3U URL</span>
-            <input
-              autoComplete="off"
-              inputMode="url"
-              placeholder="https://provider.example/playlist.m3u"
-              ref={playlistInputRef}
-              value={playlistUrl}
-              onChange={(event) => setPlaylistUrl(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>EPG URL (optional)</span>
-            <input
-              autoComplete="off"
-              inputMode="url"
-              placeholder="https://provider.example/epg.xmltv"
-              ref={epgInputRef}
-              value={epgUrl}
-              onChange={(event) => setEpgUrl(event.target.value)}
-            />
-          </label>
+          {isM3u ? (
+            <>
+              <label>
+                <span>M3U URL</span>
+                <input
+                  autoComplete="off"
+                  inputMode="url"
+                  placeholder="https://provider.example/playlist.m3u"
+                  ref={playlistInputRef}
+                  value={playlistUrl}
+                  onChange={(event) => setPlaylistUrl(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>EPG URL (optional)</span>
+                <input
+                  autoComplete="off"
+                  inputMode="url"
+                  placeholder="https://provider.example/epg.xmltv"
+                  ref={epgInputRef}
+                  value={epgUrl}
+                  onChange={(event) => setEpgUrl(event.target.value)}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                <span>Server URL</span>
+                <input
+                  autoComplete="off"
+                  inputMode="url"
+                  placeholder="https://provider.example:8080"
+                  ref={serverInputRef}
+                  value={serverUrl}
+                  onChange={(event) => setServerUrl(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Username</span>
+                <input
+                  autoComplete="off"
+                  placeholder="Xtream username"
+                  value={xtreamUsername}
+                  onChange={(event) => setXtreamUsername(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Password</span>
+                <input
+                  autoComplete="off"
+                  type="password"
+                  placeholder="Xtream password"
+                  value={xtreamPassword}
+                  onChange={(event) => setXtreamPassword(event.target.value)}
+                />
+              </label>
+            </>
+          )}
           {status.state === "error" ? (
             <p className="sync-message is-error">
-              <strong>{formatErrorCode(status.error.code)}</strong>
-              <span>{status.error.message}</span>
+              <strong>{status.state === "error" ? formatErrorCode(status.error.code) : "Error"}</strong>
+              <span>{status.state === "error" ? status.error.message : ""}</span>
             </p>
           ) : null}
           {status.state === "success" ? (
             <p className="sync-message is-success">
-              <strong>{status.message.startsWith("Connection OK") ? "Connection OK" : "Sync complete"}</strong>
-              <span>{status.message}</span>
+              <strong>{status.state === "success" && status.message.startsWith("Connection OK") ? "Connection OK" : "Sync complete"}</strong>
+              <span>{status.state === "success" ? status.message : ""}</span>
             </p>
           ) : null}
           <p className="source-note">
-            All source data is local in this prototype. Only use playlist URLs you are
+            All source data is local in this prototype. Only use credentials and URLs you are
             authorized to access.
           </p>
         </div>
         <div className="form-actions">
-          <button className="secondary-button" type="button" disabled={!canSync} onClick={() => void handleTestConnection()}>
+          <button className="secondary-button" type="button" disabled={isM3u ? !canSyncM3u : !canSyncXtream} onClick={() => void handleTestConnection()}>
             <Wifi size={24} />
             {status.state === "testing" ? "Testing" : "Test Connection"}
           </button>
-          <button className="primary-button" type="submit" disabled={!canSync}>
+          <button className="primary-button" type="submit" disabled={isM3u ? !canSyncM3u : !canSyncXtream}>
             <RefreshCw size={28} />
-            {status.state === "syncing" ? "Syncing" : "Sync Playlist"}
-            <small>{isWorking ? "Fetching playlist" : "Save locally"}</small>
+            {status.state === "syncing" ? "Syncing" : "Sync Source"}
+            <small>{isWorking ? "Connecting" : "Save locally"}</small>
           </button>
         </div>
           {isWorking ? (
@@ -1199,7 +1404,7 @@ function SourceDoctor({
   onRemoveOverride,
 }: {
   report: SourceHealthReport;
-  source?: M3uSource;
+  source?: M3uSource | XtreamSource;
   channelOverrides: Record<string, ChannelOverride>;
   onRefresh?: () => Promise<void>;
   onApplyOverride: (override: ChannelOverride) => void;
@@ -1348,11 +1553,11 @@ function SettingsScreen({
   channelsBySource: Record<string, Channel[]>;
   selectedSourceId: string;
   status: SourceActionStatus;
-  sources: M3uSource[];
+  sources: (M3uSource | XtreamSource)[];
   onAddSource: () => void;
   onClearLocalData: () => void;
-  onDeleteSource: (source: M3uSource) => void;
-  onResyncSource: (source: M3uSource) => void;
+  onDeleteSource: (source: M3uSource | XtreamSource) => void;
+  onResyncSource: (source: M3uSource | XtreamSource) => void;
 }) {
   const selectedSource = sources.find((source) => source.id === selectedSourceId);
 
@@ -1362,8 +1567,8 @@ function SettingsScreen({
       <div className="settings-layout">
         <aside className="settings-menu">
           <h1>Settings</h1>
-          <SettingsCard icon={<Database />} title="Manage Sources" text="Add or remove M3U playlists and EPG links." active />
-          <SettingsCard icon={<RefreshCw />} title="Refresh Content" text="Force update channels and guide data." onClick={() => selectedSource?.playlistUrl && onResyncSource(selectedSource)} />
+          <SettingsCard icon={<Database />} title="Manage Sources" text="Add or remove M3U playlists, EPG links, or Xtream Codes accounts." active />
+          <SettingsCard icon={<RefreshCw />} title="Refresh Content" text="Force update channels and guide data." onClick={() => selectedSource && onResyncSource(selectedSource)} />
           <SettingsCard icon={<Shield />} title="Parental PIN" text="Restrict access to sensitive content." />
           <SettingsCard icon={<Trash2 />} title="Clear Data" text="Reset local sources, caches, and settings." danger onClick={onClearLocalData} />
         </aside>
@@ -1393,7 +1598,7 @@ function SettingsScreen({
                 <button
                   className="icon-button"
                   aria-label={`Resync ${source.name}`}
-                  disabled={!source.playlistUrl || status.state === "working"}
+                  disabled={status.state === "working"}
                   onClick={() => onResyncSource(source)}
                 >
                   <RefreshCw size={24} />
@@ -1412,7 +1617,7 @@ function SettingsScreen({
           <div className="source-management-actions">
             <button
               className="secondary-button"
-              disabled={!selectedSource?.playlistUrl || status.state === "working"}
+              disabled={!selectedSource || status.state === "working"}
               onClick={() => selectedSource && onResyncSource(selectedSource)}
             >
               <RefreshCw size={24} />
@@ -1889,7 +2094,10 @@ function restoreCatalog(catalog: CatalogState): CatalogState {
   };
 }
 
-function upsertSource(sources: M3uSource[], source: M3uSource): M3uSource[] {
+function upsertSource(
+  sources: (M3uSource | XtreamSource)[],
+  source: M3uSource | XtreamSource,
+): (M3uSource | XtreamSource)[] {
   const existingIndex = sources.findIndex((item) => item.id === source.id);
 
   if (existingIndex === -1) {
@@ -1947,7 +2155,7 @@ function formatErrorCode(code: SourceSyncError["code"]): string {
     .join(" ");
 }
 
-function formatSyncStatus(source: M3uSource): string {
+function formatSyncStatus(source: M3uSource | XtreamSource): string {
   if (source.syncStatus === "failed") {
     return source.syncError ? formatErrorCode(source.syncError.code) : "Failed";
   }

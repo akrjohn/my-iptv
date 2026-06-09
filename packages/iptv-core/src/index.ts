@@ -5,3 +5,5 @@ export * from "./sourceDoctor";
 export * from "./sourceSync";
 export * from "./xmltv";
 export * from "./epgSync";
+export * from "./xtream";
+export * from "./xtreamSync";

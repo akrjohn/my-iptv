@@ -1,7 +1,7 @@
-import type { Channel, ChannelOverride, M3uSource, XmltvData } from "@my-iptv/iptv-core";
+import type { Channel, ChannelOverride, M3uSource, XtreamSource, XmltvData } from "@my-iptv/iptv-core";
 
 export type CatalogState = {
-  sources: M3uSource[];
+  sources: (M3uSource | XtreamSource)[];
   selectedSourceId: string;
   channelsBySource: Record<string, Channel[]>;
   malformedEntriesBySource: Record<string, number>;
